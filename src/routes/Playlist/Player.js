@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import ReactPlayer from 'react-player'
 
 const maxVolume = 1
+const rewindStep = 30
 const configDefaults = {
 	playing: false,
 	duration: 100,
@@ -19,10 +20,12 @@ export const Player = ({ audio }) => {
 	const togglePlay = cc('playing')(!audio ? false : !playing)
 	const setProgress = cc('progress')
 	const setDuration = cc('duration')
+	const setVolume = v => cc('volume')(numberOrLimit(v, 0, 1))()
 
 	const player = playerRef.current
-	const seekForward = () => player.seekTo(progress + 15)
-	const seekBackward = () => player.seekTo(progress - 15)
+	const seekTo = p => player.seekTo(numberOrLimit(p, 0, duration))
+	const seekForward = () => seekTo(progress + rewindStep)
+	const seekBackward = () => seekTo(progress - rewindStep)
 
 	useEffect(() => {
 		if (!!audio) {
@@ -41,22 +44,20 @@ export const Player = ({ audio }) => {
 				config={{ file: { forceAudio: true } }}
 				onProgress={p => setProgress(p.playedSeconds)()}
 				onDuration={d => setDuration(d)()}
+				progressInterval={100}
 			/>
-			<ProgressLine progress={progress} duration={duration} />
-
-			<div className='controls flex justify-around items-center'>
-				<div className='f3 fw6 pointer' onClick={seekBackward}>
-					back
-				</div>
-				<div className='f2 b pointer' onClick={togglePlay}>
-					{playing ? 'Stop' : 'Play'}
-				</div>
-				<div className='f3 fw6 pointer' onClick={seekForward}>
-					forth
-				</div>
-			</div>
-			<div className='sound-control'>
-				<ProgressLine progress={volume} duration={maxVolume} />
+			<ProgressLine
+				progress={progress}
+				duration={duration}
+				setProgress={seekTo}
+			/>
+			<PlayButtons {...{ playing, togglePlay, seekForward, seekBackward }} />
+			<div style={{ margin: '0 30px' }}>
+				<ProgressLine
+					progress={volume}
+					duration={maxVolume}
+					setProgress={setVolume}
+				/>
 			</div>
 			<div className='flex side-margin'>
 				<div className='b'>x1.5</div>
@@ -80,16 +81,49 @@ export const Player = ({ audio }) => {
 	)
 }
 
-const ProgressLine = ({ duration, progress }) => {
+const ProgressLine = ({ duration, progress, setProgress }) => {
+	const [controlled, setControlled] = useState(false)
+	const [position, setPosition] = useState(progress)
+	const progressRef = useRef(null)
+
+	useEffect(() => {
+		if (controlled) {
+			return
+		}
+		setPosition(progress)
+	}, [progress, controlled])
+
 	//calc returns progress percent value based on duration
 	const calc = v => Math.round((v * 10000) / duration) / 100
-	const d = calc(duration - progress)
-	const p = calc(progress)
+	const d = calc(duration - position)
+	const p = calc(position)
+	const touchMove = e => {
+		setControlled(true)
+		const touch = e.targetTouches[0]
+		const x = touch.clientX - progressRef.current.getBoundingClientRect().x
+		const w = progressRef.current.offsetWidth
+		const nd = (x / w) * duration
+		setPosition(nd)
+	}
+
+	const releaseControll = e => {
+		setProgress(position)
+		setTimeout(() => setControlled(false), 200)
+	}
+
 	return (
-		<div className='container flex items-center'>
+		<div
+			className='container flex items-center h2'
+			ref={progressRef}
+			onTouchMove={touchMove}
+			onTouchEnd={releaseControll}
+		>
 			<div style={{ width: `${p}%` }} className='progress'></div>
 			<div style={{ width: `${d}%` }} className='duration'></div>
 			<style jsx>{`
+				.container {
+					width: 100%;
+				}
 				.progress {
 					background: black;
 					height: 5px;
@@ -103,3 +137,22 @@ const ProgressLine = ({ duration, progress }) => {
 		</div>
 	)
 }
+
+const PlayButtons = ({ playing, togglePlay, seekForward, seekBackward }) => {
+	return (
+		<div className='controls flex justify-around items-center'>
+			<div className='f3 fw6 pointer' onClick={seekBackward}>
+				back
+			</div>
+			<div className='f2 b pointer' onClick={togglePlay}>
+				{playing ? 'Stop' : 'Play'}
+			</div>
+			<div className='f3 fw6 pointer' onClick={seekForward}>
+				forth
+			</div>
+		</div>
+	)
+}
+
+//returns 'n' if it betweens 'a' and 'b' limits, or else closest limit.
+const numberOrLimit = (n, a, b) => (n < a ? a : n > b ? b : n)

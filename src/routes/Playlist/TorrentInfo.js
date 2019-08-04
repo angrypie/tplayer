@@ -27,8 +27,8 @@ export const TorrentInfo = ({ ih, selectFile }) => {
 				<div className='f2 b lh-title'>Book</div>
 				<div className='f3 b o-50 lh-copy truncate'>{info.name}</div>
 			</div>
-			<div className='file-list-container'>
-				<div className='file-list' ref={listEl}>
+			<div className='file-list-container' ref={listEl}>
+				<div className='file-list' >
 					<PlayList
 						files={info.files}
 						current={currentFile}
@@ -54,13 +54,11 @@ export const TorrentInfo = ({ ih, selectFile }) => {
 				.file-list-container {
 					flex: 0 1 auto;
 					overflow: scroll;
-					background-white;
 					margin-top: 10px;
+					-webkit-overflow-scrolling: touch;
 				}
 
 				.file-list {
-					overflow: scroll;
-					-webkit-overflow-scrolling: touch;
 				}
 			`}</style>
 		</div>

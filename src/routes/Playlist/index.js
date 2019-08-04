@@ -27,7 +27,6 @@ function App() {
 			`}</style>
 			<style jsx>{`
 				.container {
-					//max-height: 100vh;
 					height: ${window.innerHeight}px;
 					max-width: 500px;
 					display: flex;
@@ -39,7 +38,7 @@ function App() {
 				}
 
 				.info {
-					height: calc(100vh - 40px - 150px);
+					height: calc(${window.innerHeight}px - 40px - 150px);
 				}
 
 				.player {
