@@ -9,7 +9,7 @@
 		"body-scroll-lock": "^2.6.4",
 		"dexie": "^2.0.4",
 		"mobx": "^5.13.0",
-		"mobx-react": "^6.1.1",
+		"mobx-react-lite": "^1.4.1",
 		"react": "^16.8.6",
 		"react-dom": "^16.8.6",
 		"react-player": "^1.11.1",

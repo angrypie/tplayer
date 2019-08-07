@@ -24,7 +24,5 @@ export const File = ({ ih, path, length }) => {
 		},
 		[audio]
 	)
-	return (
-		<Player audio={audio} />
-	)
+	return <Player audio={audio} />
 }

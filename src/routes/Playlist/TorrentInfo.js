@@ -28,7 +28,7 @@ export const TorrentInfo = ({ ih, selectFile }) => {
 				<div className='f3 b o-50 lh-copy truncate'>{info.name}</div>
 			</div>
 			<div className='file-list-container' ref={listEl}>
-				<div className='file-list' >
+				<div className='file-list'>
 					<PlayList
 						files={info.files}
 						current={currentFile}
@@ -87,7 +87,7 @@ const PlayList = ({ files, selectFile, current = [] }) => {
 				}
 
 				.active {
-					background-color: #2F37FF;
+					background-color: #2f37ff;
 				}
 			`}</style>
 		</div>

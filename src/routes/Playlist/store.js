@@ -37,9 +37,7 @@ async function addFile(ih, path, file) {
 }
 
 async function getFile(ih, path) {
-	const file = await db.files
-		.where({ ih, path })
-		.first()
+	const file = await db.files.where({ ih, path }).first()
 	if (file === undefined) {
 		return null
 	}

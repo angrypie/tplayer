@@ -30,7 +30,6 @@ export async function getAudio(ih, pathArr) {
 
 		store.addFile(ih, path, blob)
 		return URL.createObjectURL(blob)
-
 	} catch (err) {
 		console.error(err)
 		return null
