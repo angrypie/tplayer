@@ -1,4 +1,3 @@
-
 export class Player {
 	constructor() {
 		this.audio = new Audio()
@@ -6,6 +5,14 @@ export class Player {
 
 	addUrl(url) {
 		this.audio = new Audio(url)
+	}
+
+	seekTo(time) {
+		this.audio.currentTime = time
+	}
+
+	get currentTime() {
+		return this.audio.currentTime
 	}
 
 	play() {
@@ -16,8 +23,7 @@ export class Player {
 		this.audio.pause()
 	}
 
-	paused() {
+	get paused() {
 		return this.audio.paused
 	}
-
 }

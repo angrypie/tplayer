@@ -3,7 +3,7 @@ import { Player } from './player'
 
 export const maxVolume = 1
 export const rewindStep = 30
-export const playerState = {
+export const defaultPlayerState = {
 	duration: 100,
 	progress: 0,
 	volume: 0.7,
@@ -13,56 +13,64 @@ export const playerState = {
 }
 
 export const usePlayerStore = state => {
-	const store = useLocalStore(() => {
-		const s = {
-			seekTo(p) {
-				const player = store.playerRef.current
-				return player.seekTo(numberOrLimit(Math.round(p), 0, store.duration))
-			},
+	const store = useLocalStore(() => ({
+		...addState(() => store, defaultPlayerState),
 
-			//state getters and setters
-			newAudio(audio) {
-				if (!audio) {
-					return false
-				}
-				store.setAudio(audio)
-				store.player.addUrl(audio)
-				return true
-			},
+		seekTo(p) {
+			console.log(store.player.currentTime)
+			store.player.seekTo(numberOrLimit(Math.round(p), 0, p))
+			console.log(store.player.currentTime)
+		},
 
-			togglePlaying(isPlaying) {
-				const { playing, play, pause } = store
-				const shouldPlay = typeof isPlaying === 'boolean' ? isPlaying : !playing
-				shouldPlay ? play() : pause()
-			},
+		//state getters and setters
+		newAudio(audio) {
+			if (!audio) {
+				return false
+			}
+			store.setAudio(audio)
+			store.player.addUrl(audio)
+			return true
+		},
 
-			play() {
-				store.player.play()
-				store.playing = true
-			},
+		getProgress() {
+			return store.player.currentTime
+		},
 
-			pause() {
-				store.player.pause()
-				store.playing = false
-			},
-		}
-		return addState(s, () => store, playerState)
-	})
+		getDuration() {
+			return store.player.duration
+		},
+
+		togglePlaying(isPlaying) {
+			const { playing, play, pause } = store
+			const shouldPlay = typeof isPlaying === 'boolean' ? isPlaying : !playing
+			shouldPlay ? play() : pause()
+		},
+
+		play() {
+			store.player.play()
+			store.playing = true
+		},
+
+		pause() {
+			store.player.pause()
+			store.playing = false
+		},
+	}))
 
 	return store
 }
 
-function addState(current, getStore, state) {
+function addState(getStore, state) {
 	const props = Object.keys(state)
 
-	return props.reduce((store, prop) => {
+	return props.reduce((current, prop) => {
 		const method = `set${prop[0].toUpperCase() + prop.slice(1)}`
 		//init state
 		current[prop] = state[prop]
 		//defin  setters
 		current[method] = value => (getStore()[prop] = value)
 		return current
-	}, current)
+	}, {})
 }
 
 //returns 'n' if it betweens 'a' and 'b' limits, or else closest limit.

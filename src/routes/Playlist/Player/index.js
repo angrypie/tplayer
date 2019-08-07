@@ -1,23 +1,19 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect } from 'react'
 import { PlayButtons } from './PlayButtons'
 import { DurationProgressLine, VolumeProgressLine } from './ProgressLines'
-import { ReactPlayerWrapper } from './ReactPlayerWrapper'
 import { observer } from 'mobx-react-lite'
-import { usePlayerStore, playerState } from './store'
+import { usePlayerStore, defaultPlayerState } from './store'
 
 export const Player = observer(({ audio }) => {
-	const playerRef = useRef(null)
 
-	const store = usePlayerStore({ ...playerState, audio })
+	const store = usePlayerStore(defaultPlayerState)
 
 	useEffect(() => {
 		if (store.newAudio(audio)) {
-			console.log('new audio', audio)
 			store.togglePlaying(true)
 		}
 	}, [audio, store])
 
-	console.log(store.playing +  '')
 	return (
 		<div className='player flex flex-column justify-around'>
 			<DurationProgressLine store={store} />

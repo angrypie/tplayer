@@ -35,7 +35,7 @@
 	],
 	"devDependencies": {
 		"@babel/core": "^7.0.0",
-		"@babel/plugin-proposal-decorators": "^7.4.4",
+		"@babel/plugin-proposal-object-rest-spread": "^7.5.5",
 		"babel-plugin-root-import": "^6.4.1",
 		"prettier": "^1.18.2",
 		"tachyons": "^4.11.1"
