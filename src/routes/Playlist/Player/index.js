@@ -8,17 +8,18 @@ import { usePlayerStore, playerState } from './store'
 export const Player = observer(({ audio }) => {
 	const playerRef = useRef(null)
 
-	const store = usePlayerStore({ ...playerState, playerRef, audio })
+	const store = usePlayerStore({ ...playerState, audio })
 
 	useEffect(() => {
 		if (store.newAudio(audio)) {
-			store.setPlaying(true)
+			console.log('new audio', audio)
+			store.togglePlaying(true)
 		}
 	}, [audio, store])
 
+	console.log(store.playing +  '')
 	return (
 		<div className='player flex flex-column justify-around'>
-			<ReactPlayerWrapper store={store} />
 			<DurationProgressLine store={store} />
 			<PlayButtons store={store} />
 			<VolumeProgressLine store={store} />
