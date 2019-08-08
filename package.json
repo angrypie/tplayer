@@ -19,7 +19,7 @@
 	},
 	"scripts": {
 		"start": "craco start",
-		"build": "craco build",
+		"build": "craco build && rimraf ./build/static/**/*.map",
 		"test": "craco test",
 		"eject": "react-scripts eject",
 		"format": "prettier --write \"src/**/*.{js,jsx,css}\""
@@ -38,6 +38,7 @@
 		"@babel/plugin-proposal-object-rest-spread": "^7.5.5",
 		"babel-plugin-root-import": "^6.4.1",
 		"prettier": "^1.18.2",
+		"rimraf": "^2.6.3",
 		"tachyons": "^4.11.1"
 	}
 }
