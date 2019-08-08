@@ -1,13 +1,19 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { TorrentInfo } from './TorrentInfo'
 import { File } from './File'
 import { Nav } from './Nav'
+import { useLocalStore } from 'mobx-react-lite'
 
 function App() {
-	//const ih = '558C31000CCFF91B51670B901D5512B3940998B8'
 	const ih = '5A0EEED914F871D1FDDA8A0E11B1186E3F4AB6DB'
 
-	const [file, setFile] = useState({})
+	const store  = useLocalStore(() => ({
+		ih,
+		file: {},
+		setFile(file) {
+			store.file = {...file}
+		}
+	}))
 
 	return (
 		<div className='container'>
@@ -15,10 +21,10 @@ function App() {
 				<Nav />
 			</div>
 			<div className='info'>
-				<TorrentInfo ih={ih} selectFile={setFile} />
+				<TorrentInfo store={store} />
 			</div>
 			<div className='player'>
-				<File {...file} />
+				<File store={store} />
 			</div>
 			<style>{`
 				html, body {

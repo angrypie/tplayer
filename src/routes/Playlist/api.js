@@ -1,23 +1,23 @@
 import { decode } from '@thi.ng/bencode'
-import { store } from './store'
+import { storage } from './storage'
 
 export async function getTorrentInfo(ih) {
-	const torrent = await store.getTorrent(ih)
+	const torrent = await storage.getTorrent(ih)
 	if (torrent !== null) {
-		return torrent.info
+		return await transformTorrentInfo(ih, torrent.info)
 	}
 	const url = `/info?ih=${ih}`
 	const res = await fetch(url, { mode: 'cors' })
 	const body = await res.arrayBuffer()
 	const info = decode(new Uint8Array(body))
-	store.addTorrent(ih, info)
-	return info
+	storage.addTorrent(ih, info)
+	return await transformTorrentInfo(ih, info)
 }
 
 export async function getAudio(ih, pathArr) {
 	try {
 		const path = pathArr.join('/')
-		const file = await store.getFile(ih, path)
+		const file = await storage.getFile(ih, path)
 		if (file !== null) {
 			const audioUrl = URL.createObjectURL(file.file)
 			return audioUrl
@@ -28,10 +28,18 @@ export async function getAudio(ih, pathArr) {
 		const array = new Uint8Array(buf)
 		const blob = new Blob([array], { type: 'audio/mp3' })
 
-		store.addFile(ih, path, blob)
+		storage.addFile(ih, path, blob)
 		return URL.createObjectURL(blob)
 	} catch (err) {
 		console.error(err)
 		return null
 	}
+}
+
+async function transformTorrentInfo(ih, torrent) {
+	for (const file of torrent.files) {
+		const cached = await storage.getFile(ih, file.path.join('/'))
+		file.cached = cached !== null
+	}
+	return torrent
 }

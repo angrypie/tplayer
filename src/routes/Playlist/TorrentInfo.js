@@ -4,7 +4,9 @@ import { formatBytes } from './utils'
 
 import { disableBodyScroll, enableBodyScroll } from 'body-scroll-lock'
 
-export const TorrentInfo = ({ ih, selectFile }) => {
+export const TorrentInfo = ({ store }) => {
+	const { ih } = store
+
 	const [info, setInfo] = useState({ name: '', files: [], length: 0 })
 	const [currentFile, setCurrentFile] = useState({ path: [] })
 	const listEl = useRef(null)
@@ -34,7 +36,7 @@ export const TorrentInfo = ({ ih, selectFile }) => {
 						current={currentFile}
 						selectFile={f => {
 							setCurrentFile(f)
-							selectFile({ ...f, ih })
+							store.setFile({ ...f, ih })
 						}}
 					/>
 				</div>
@@ -73,12 +75,14 @@ const PlayList = ({ files, selectFile, current = [] }) => {
 			? 'active white'
 			: 'hover-bg-near-white-ns bg-white'
 
-	return files.map(({ path, length }, i) => (
-		<div key={i} onClick={() => selectFile({ path, length })}>
-			<div className={`${position} ${appearance} ${getColor(path)}`}>
-				<div>{path.join('/')}</div>
-				<div className='b'>{formatBytes(length)}</div>
-			</div>
+	return files.map(({ path, length, cached }, i) => (
+		<div
+			key={i}
+			onClick={() => selectFile({ path, length })}
+			className={`${position} ${appearance} ${getColor(path)}`}
+		>
+			<div>{path.join('/')}</div>
+			<div className='b'>{cached ? 'loadded' : formatBytes(length)}</div>
 
 			<style jsx>{`
 				.file {

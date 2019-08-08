@@ -45,7 +45,7 @@ async function getFile(ih, path) {
 	return file
 }
 
-export const store = {
+export const storage = {
 	addTorrent,
 	getTorrent,
 	addFile,
