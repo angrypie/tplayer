@@ -17,9 +17,7 @@ export const usePlayerStore = state => {
 		...addState(() => store, defaultPlayerState),
 
 		seekTo(p) {
-			console.log(store.player.currentTime)
 			store.player.seekTo(numberOrLimit(Math.round(p), 0, p))
-			console.log(store.player.currentTime)
 		},
 
 		//state getters and setters
@@ -46,9 +44,10 @@ export const usePlayerStore = state => {
 			shouldPlay ? play() : pause()
 		},
 
-		play() {
-			store.player.play()
-			store.playing = true
+		async play() {
+			if (await store.player.play()) {
+				store.playing = true
+			}
 		},
 
 		pause() {

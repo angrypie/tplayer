@@ -10,10 +10,9 @@ export const Player = observer(({ audio }) => {
 
 	useEffect(() => {
 		if (store.newAudio(audio)) {
-			store.togglePlaying(true)
+			store.play(true)
 		}
 	}, [audio, store])
-
 	return (
 		<div className='player flex flex-column justify-around'>
 			<DurationProgressLine store={store} />

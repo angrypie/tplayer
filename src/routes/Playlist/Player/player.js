@@ -4,7 +4,7 @@ export class Player {
 	}
 
 	addUrl(url) {
-		this.audio = new Audio(url)
+		this.audio.src = url
 	}
 
 	seekTo(time) {
@@ -15,8 +15,16 @@ export class Player {
 		return this.audio.currentTime
 	}
 
-	play() {
-		this.audio.play()
+	async play() {
+		try {
+			await this.audio.play()
+			return true
+		} catch (err) {
+			if (err.name === 'NotAllowedError') {
+				alert(`Click to 'Play' button to enable autoplay.`)
+			}
+			return false
+		}
 	}
 
 	pause() {
@@ -25,5 +33,9 @@ export class Player {
 
 	get paused() {
 		return this.audio.paused
+	}
+
+	get duration() {
+		return this.audio.duration || 1
 	}
 }

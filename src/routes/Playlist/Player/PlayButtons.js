@@ -3,9 +3,9 @@ import { rewindStep } from './store'
 import { observer } from 'mobx-react-lite'
 
 export const PlayButtons = observer(({ store }) => {
-	const { playing, togglePlaying, progress } = store
-	const seekForward = () => store.seekTo(progress + rewindStep)
-	const seekBackward = () => store.seekTo(progress - rewindStep)
+	const { playing, togglePlaying, getProgress } = store
+	const seekForward = () => store.seekTo(getProgress() + rewindStep)
+	const seekBackward = () => store.seekTo(getProgress() - rewindStep)
 
 	return (
 		<div className='controls flex justify-around items-center'>

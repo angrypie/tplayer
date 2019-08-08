@@ -3,15 +3,17 @@ import { numberOrLimit, maxVolume } from './store'
 import { observer } from 'mobx-react-lite'
 
 export const DurationProgressLine = observer(({ store }) => {
-	const { audio, getProgress, duration } = store
+	const { audio } = store
 	const [progress, setProgress] = useState(0)
+	const [duration, setDuration] = useState(1)
 
 	useEffect(() => {
 		const interval = setInterval(() => {
-			setProgress(getProgress())
+			setDuration(store.getDuration())
+			setProgress(store.getProgress())
 		}, 200)
 		return () => clearInterval(interval)
-	}, [audio, getProgress])
+	}, [audio, store])
 	return (
 		<ProgressLine
 			progress={progress}
