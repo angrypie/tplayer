@@ -1,23 +1,25 @@
 import React, { useState, useEffect } from 'react'
-import { getAudio } from './api'
 import { Player } from './Player'
 import { observer } from 'mobx-react-lite'
 
-export const File = observer(({ store }) => {
+export const File = observer(({ store, playerStore }) => {
 	//Set audio obeject URL
-	const { ih, path } = store.file
+	const { ih, getAudio, currentFile } = store
 	const [audio, setAudio] = useState(null)
 
 	useEffect(() => {
 		const download = async () => {
-			const url = await getAudio(ih, path)
+			const url = await getAudio(currentFile)
+			if (url === null) {
+				return
+			}
 			setAudio(url)
 		}
 
-		if (ih !== undefined && path !== undefined) {
+		if (ih) {
 			download()
 		}
-	}, [ih, path])
+	}, [ih, currentFile, getAudio])
 
 	useEffect(
 		() => () => {
@@ -26,5 +28,5 @@ export const File = observer(({ store }) => {
 		},
 		[audio]
 	)
-	return <Player audio={audio} />
+	return <Player audio={audio} store={playerStore} />
 })

@@ -45,10 +45,9 @@ const ProgressLine = ({ duration, progress, setProgress }) => {
 	const progressRef = useRef(null)
 
 	useEffect(() => {
-		if (controlled) {
-			return
+		if (!controlled) {
+			setPosition(progress)
 		}
-		setPosition(progress)
 	}, [progress, controlled])
 
 	//calc returns progress percent value based on duration
@@ -60,8 +59,7 @@ const ProgressLine = ({ duration, progress, setProgress }) => {
 		const touch = e.targetTouches[0]
 		const x = touch.clientX - progressRef.current.getBoundingClientRect().x
 		const w = progressRef.current.offsetWidth
-		const nd = (x / w) * duration
-		setPosition(nd)
+		setPosition((x / w) * duration)
 	}
 
 	const releaseControll = e => {

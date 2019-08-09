@@ -12,7 +12,7 @@ export const defaultPlayerState = {
 	player: new Player(),
 }
 
-export const usePlayerStore = state => {
+export const usePlayerStore = () => {
 	const store = useLocalStore(() => ({
 		...addState(() => store, defaultPlayerState),
 

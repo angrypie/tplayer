@@ -2,15 +2,12 @@ import React, { useEffect } from 'react'
 import { PlayButtons } from './PlayButtons'
 import { DurationProgressLine, VolumeProgressLine } from './ProgressLines'
 import { observer } from 'mobx-react-lite'
-import { usePlayerStore, defaultPlayerState } from './store'
 
-export const Player = observer(({ audio }) => {
-
-	const store = usePlayerStore(defaultPlayerState)
+export const Player = observer(({ audio, store }) => {
 
 	useEffect(() => {
 		if (store.newAudio(audio)) {
-			store.play(true)
+			//store.play()
 		}
 	}, [audio, store])
 	return (

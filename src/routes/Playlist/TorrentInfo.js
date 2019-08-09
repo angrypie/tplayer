@@ -1,44 +1,29 @@
-import React, { useEffect, useState, useRef } from 'react'
-import { getTorrentInfo } from './api'
+import React, { useEffect, useRef } from 'react'
 import { formatBytes } from './utils'
-
+import { observer } from 'mobx-react-lite'
 import { disableBodyScroll, enableBodyScroll } from 'body-scroll-lock'
 
-export const TorrentInfo = ({ store }) => {
-	const { ih } = store
+export const TorrentInfo = observer(({ store }) => {
+	const { ih, torrentInfo, setTorrentInfo } = store
 
-	const [info, setInfo] = useState({ name: '', files: [], length: 0 })
-	const [currentFile, setCurrentFile] = useState({ path: [] })
 	const listEl = useRef(null)
 
 	useEffect(() => {
 		const current = listEl.current
 		disableBodyScroll(current)
-		async function run() {
-			const info = await getTorrentInfo(ih)
-			const { name = '', files = [], length = 0 } = info
-			setInfo({ name: info['name.utf-8'] || name, files, length })
-		}
-		run()
+		setTorrentInfo(ih)
 		return () => enableBodyScroll(current)
-	}, [ih])
+	}, [ih, setTorrentInfo])
 
 	return (
 		<div className='container'>
 			<div className='header'>
 				<div className='f2 b lh-title'>Book</div>
-				<div className='f3 b o-50 lh-copy truncate'>{info.name}</div>
+				<div className='f3 b o-50 lh-copy truncate'>{torrentInfo.name}</div>
 			</div>
 			<div className='file-list-container' ref={listEl}>
 				<div className='file-list'>
-					<PlayList
-						files={info.files}
-						current={currentFile}
-						selectFile={f => {
-							setCurrentFile(f)
-							store.setFile({ ...f, ih })
-						}}
-					/>
+					<PlayList store={store} />
 				</div>
 			</div>
 			<style jsx>{`
@@ -65,35 +50,45 @@ export const TorrentInfo = ({ store }) => {
 			`}</style>
 		</div>
 	)
-}
+})
 
-const PlayList = ({ files, selectFile, current = [] }) => {
+const PlayList = observer(({ store }) => {
+	const { currentFile, torrentInfo, setCurrentFile } = store
 	const position = 'file flex justify-between items-center '
 	const appearance = 'pointer bg-animate-ns'
 	const getColor = path =>
-		current.path.join('/') === path.join('/')
+		currentFile.path.join('/') === path.join('/')
 			? 'active white'
 			: 'hover-bg-near-white-ns bg-white'
 
-	return files.map(({ path, length, cached }, i) => (
-		<div
-			key={i}
-			onClick={() => selectFile({ path, length })}
-			className={`${position} ${appearance} ${getColor(path)}`}
-		>
-			<div>{path.join('/')}</div>
-			<div className='b'>{cached ? 'loadded' : formatBytes(length)}</div>
+	const getLabel = ({ path, cached, length, state }) => {
+		let label = cached ? 'loaded' : formatBytes(length)
+		label = state === 'loading' ? 'loading' : label
+		return label
+	}
 
-			<style jsx>{`
-				.file {
-					height: 2.5rem;
-					padding: 0 15px;
-				}
+	return torrentInfo.files.map((file, i) => {
+		const { path } = file
+		return (
+			<div
+				key={i}
+				onClick={() => setCurrentFile(file)}
+				className={`${position} ${appearance} ${getColor(path)}`}
+			>
+				<div>{path.join('/')}</div>
+				<div className='b'>{getLabel(file)}</div>
 
-				.active {
-					background-color: #2f37ff;
-				}
-			`}</style>
-		</div>
-	))
-}
+				<style jsx>{`
+					.file {
+						height: 2.5rem;
+						padding: 0 15px;
+					}
+
+					.active {
+						background-color: #2f37ff;
+					}
+				`}</style>
+			</div>
+		)
+	})
+})
