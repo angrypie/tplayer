@@ -37,6 +37,11 @@ export async function getAudio(ih, pathArr) {
 }
 
 async function transformTorrentInfo(ih, torrent) {
+	console.log(torrent)
+	if(!torrent.files) {
+		const { length, name } = torrent
+		torrent.files = [ { name, length, path: [name] } ]
+	}
 	for (const file of torrent.files) {
 		const cached = await storage.getFile(ih, file.path.join('/'))
 		file.cached = cached !== null
