@@ -8,6 +8,9 @@ export const DurationProgressLine = observer(({ store }) => {
 	const [duration, setDuration] = useState(1)
 
 	useEffect(() => {
+		if (!audio) {
+			return
+		}
 		const interval = setInterval(() => {
 			setDuration(store.getDuration())
 			setProgress(store.getProgress())
@@ -15,18 +18,20 @@ export const DurationProgressLine = observer(({ store }) => {
 		return () => clearInterval(interval)
 	}, [audio, store])
 	return (
-		<ProgressLine
-			progress={progress}
-			duration={duration}
-			setProgress={p => store.seekTo(p)}
-		/>
+		<div style={{ margin: '0 15px' }}>
+			<ProgressLine
+				progress={progress}
+				duration={duration}
+				setProgress={p => store.seekTo(p)}
+				displayMeasures={m => timeFormat(m)}
+			/>
+		</div>
 	)
 })
 
 export const VolumeProgressLine = observer(({ store }) => {
 	const { setVolume, volume } = store
-	const setProgress = v =>
-		setVolume(numberOrLimit(Math.round(v * 1e5) / 1e5, 0, 1))
+	const setProgress = v => setVolume(Math.round(v * 1e5) / 1e5, 0, 1)
 
 	return (
 		<div style={{ margin: '0 30px' }}>
@@ -39,7 +44,7 @@ export const VolumeProgressLine = observer(({ store }) => {
 	)
 })
 
-const ProgressLine = ({ duration, progress, setProgress }) => {
+const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 	const [controlled, setControlled] = useState(false)
 	const [position, setPosition] = useState(progress)
 	const progressRef = useRef(null)
@@ -51,6 +56,7 @@ const ProgressLine = ({ duration, progress, setProgress }) => {
 	}, [progress, controlled])
 
 	//calc returns progress percent value based on duration
+	//Use position instead progress to controll this value in component state
 	const calc = v => Math.round((v * 10000) / duration) / 100
 	const d = calc(duration - position)
 	const p = calc(position)
@@ -59,7 +65,7 @@ const ProgressLine = ({ duration, progress, setProgress }) => {
 		const touch = e.targetTouches[0]
 		const x = touch.clientX - progressRef.current.getBoundingClientRect().x
 		const w = progressRef.current.offsetWidth
-		setPosition((x / w) * duration)
+		setPosition(numberOrLimit((x / w) * duration, 0, duration))
 	}
 
 	const releaseControll = e => {
@@ -69,17 +75,29 @@ const ProgressLine = ({ duration, progress, setProgress }) => {
 
 	return (
 		<div
-			className='container flex items-center h2'
+			className='container'
 			ref={progressRef}
 			onTouchMove={touchMove}
 			onTouchEnd={releaseControll}
 		>
-			<div style={{ width: `${p}%` }} className='progress'></div>
-			<div style={{ width: `${d}%` }} className='duration'></div>
+			<div className='flex items-center h1'>
+				<div style={{ width: `${p}%` }} className='progress'></div>
+				<div style={{ width: `${d}%` }} className='duration'></div>
+			</div>
+
+			{typeof displayMeasures !== 'function' ? null : (
+				<div className='flex justify-between'>
+					<div className='measure'>{displayMeasures(position)}</div>
+					<div className='measure'>-{displayMeasures(duration - position)}</div>
+				</div>
+			)}
+
 			<style jsx>{`
 				.container {
 					width: 100%;
+					height: 2rem;
 				}
+
 				.progress {
 					background: black;
 					height: 5px;
@@ -89,7 +107,31 @@ const ProgressLine = ({ duration, progress, setProgress }) => {
 					background: black;
 					height: 1px;
 				}
+
+				.measure {
+					font-size: 13px;
+					opacity: 0.5;
+					font-weight: 500;
+				}
 			`}</style>
 		</div>
 	)
+}
+
+function timeFormat(time) {
+	time = ~~time
+	// Hours, minutes and seconds
+	const hrs = ~~(time / 3600)
+	const mins = ~~((time % 3600) / 60)
+	const secs = ~~time % 60
+
+	let ret = ''
+
+	if (hrs > 0) {
+		ret += '' + hrs + ':' + (mins < 10 ? '0' : '')
+	}
+
+	ret += '' + mins + ':' + (secs < 10 ? '0' : '')
+	ret += '' + secs
+	return ret
 }

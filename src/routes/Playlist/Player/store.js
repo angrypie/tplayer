@@ -4,8 +4,6 @@ import { Player } from './player'
 export const maxVolume = 1
 export const rewindStep = 30
 export const defaultPlayerState = {
-	duration: 100,
-	progress: 0,
 	volume: 0.7,
 	audio: null,
 	playerRef: {},
@@ -35,6 +33,7 @@ export const usePlayerStore = () => {
 		},
 
 		getDuration() {
+			console.log(store.player.duration)
 			return store.player.duration
 		},
 
