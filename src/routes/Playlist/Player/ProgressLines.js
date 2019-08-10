@@ -30,8 +30,12 @@ export const DurationProgressLine = observer(({ store }) => {
 })
 
 export const VolumeProgressLine = observer(({ store }) => {
-	const { setVolume, volume } = store
-	const setProgress = v => setVolume(Math.round(v * 1e5) / 1e5, 0, 1)
+	const { changeVolume, setVolume, volume } = store
+	const setProgress = v => {
+		const volume = Math.round(v * 1e5) / 1e5
+		changeVolume(volume)
+		setVolume(volume)
+	}
 
 	return (
 		<div style={{ margin: '0 30px' }}>

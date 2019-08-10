@@ -18,6 +18,10 @@ export const usePlayerStore = () => {
 			store.player.seekTo(numberOrLimit(Math.round(p), 0, p))
 		},
 
+		changeVolume(volume) {
+			store.player.changeVolume(volume)
+		},
+
 		//state getters and setters
 		newAudio(audio) {
 			if (!audio) {
