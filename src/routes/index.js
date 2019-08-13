@@ -7,7 +7,7 @@ import Playlist from './Playlist'
 export const LayoutRoute = ({ ...rest }) => (
 	<>
 		<Route path={'/'} exact component={Home} />
-		<Route path={'/Playlist'} exact component={Playlist} />
+		<Route path={'/playlist/:ih'} exact component={Playlist} />
 	</>
 )
 
