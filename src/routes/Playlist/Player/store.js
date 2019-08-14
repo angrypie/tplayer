@@ -37,7 +37,6 @@ export const usePlayerStore = () => {
 		},
 
 		getDuration() {
-			console.log(store.player.duration)
 			return store.player.duration
 		},
 
