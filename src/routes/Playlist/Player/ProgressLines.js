@@ -79,7 +79,7 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 
 	return (
 		<div
-			className='container'
+			className='container h2 w-100 flex flex-column justify-center'
 			ref={progressRef}
 			onTouchMove={touchMove}
 			onTouchEnd={releaseControll}
@@ -97,11 +97,6 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 			)}
 
 			<style jsx>{`
-				.container {
-					width: 100%;
-					height: 2rem;
-				}
-
 				.progress {
 					background: black;
 					height: 5px;

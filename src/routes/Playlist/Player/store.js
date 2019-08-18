@@ -5,6 +5,7 @@ export const maxVolume = 1
 export const rewindStep = 30
 export const defaultPlayerState = {
 	volume: 0.7,
+	rate: 1,
 	audio: null,
 	playerRef: {},
 	player: new Player(),
@@ -47,6 +48,7 @@ export const usePlayerStore = () => {
 		},
 
 		play() {
+			store.player.changeRate(store.rate)
 			if (store.player.play()) {
 				store.playing = true
 			}
@@ -55,6 +57,12 @@ export const usePlayerStore = () => {
 		pause() {
 			store.player.pause()
 			store.playing = false
+		},
+
+		changeRate(rate) {
+			const value = numberOrLimit(rate, 0.5, 4)
+			store.setRate(value)
+			store.player.changeRate(value)
 		},
 	}))
 

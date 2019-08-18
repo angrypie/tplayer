@@ -1,22 +1,18 @@
-import { Howl, Howler } from 'howler'
+import { Howl } from 'howler'
 
 export class Player {
 	constructor() {
-		initHowler()
+		this.howler = initHowler()
 	}
 
 	addUrl(url) {
-		if (this.howler) {
-			this.howler.unload()
-		}
-
+		this.howler.unload()
 		this.howler = newHowler(url)
 	}
 
 	play() {
-		if (this.howler && !this.paused) {
+		if (!this.paused) {
 			this.howler.play()
-			console.log('test')
 			return true
 		}
 	}
@@ -33,18 +29,18 @@ export class Player {
 	}
 
 	changeVolume(value) {
-		Howler.volume(value)
+		this.howler.volume(value)
+	}
+
+	changeRate(value) {
+		this.howler.rate(value)
 	}
 
 	get currentTime() {
 		return this.howler.seek() || 0
 	}
 
-
 	get paused() {
-		if (!this.howler) {
-			return false
-		}
 		return this.howler.playing()
 	}
 
