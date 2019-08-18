@@ -1,65 +1,64 @@
+import { Howl, Howler } from 'howler'
+
 export class Player {
 	constructor() {
-		this.audio = new Audio()
+		initHowler()
 	}
 
 	addUrl(url) {
-		this.audio.src = url
+		if (this.howler) {
+			this.howler.unload()
+		}
+
+		this.howler = newHowler(url)
 	}
 
-	seekTo(time) {
-		this.audio.currentTime = time
-	}
-
-	changeVolume(value) {
-		this.gainNode.gain.value = value
-	}
-
-	get currentTime() {
-		return this.audio.currentTime
-	}
-
-	async play() {
-		this.initContext()
-		try {
-			await this.audio.play()
+	play() {
+		if (this.howler && !this.paused) {
+			this.howler.play()
+			console.log('test')
 			return true
-		} catch (err) {
-			if (err.name === 'NotAllowedError') {
-				alert(`Click to 'Play' button to enable autoplay.`)
-			}
-			return false
 		}
 	}
 
 	pause() {
-		this.audio.pause()
+		if (this.paused) {
+			this.howler.pause()
+			return true
+		}
 	}
 
+	seekTo(time) {
+		this.howler.seek(time)
+	}
+
+	changeVolume(value) {
+		Howler.volume(value)
+	}
+
+	get currentTime() {
+		return this.howler.seek() || 0
+	}
+
+
 	get paused() {
-		return this.audio.paused
+		if (!this.howler) {
+			return false
+		}
+		return this.howler.playing()
 	}
 
 	get duration() {
-		return this.audio.duration || 1
-	}
-
-	initContext() {
-		if (!this.gainNode) {
-			var audioCtx = new (window.AudioContext || window.webkitAudioContext)()
-
-			// Create a MediaElementAudioSourceNode
-			// Feed the HTMLMediaElement into it
-			const source = audioCtx.createMediaElementSource(this.audio)
-
-			// Create a gain node
-			const gainNode = audioCtx.createGain()
-			source.connect(gainNode)
-			gainNode.connect(audioCtx.destination)
-
-			//this.audioCtx = audioCtx
-			//this.source = source
-			this.gainNode = gainNode
-		}
+		return this.howler.duration() || 1
 	}
 }
+
+const newHowler = url =>
+	new Howl({
+		src: [url],
+		format: ['mp3'],
+		html5: true,
+	})
+
+const initHowler = () =>
+	newHowler(URL.createObjectURL(new Blob(['0'], { type: 'text/plain' })))

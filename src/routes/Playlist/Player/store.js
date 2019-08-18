@@ -46,8 +46,8 @@ export const usePlayerStore = () => {
 			shouldPlay ? play() : pause()
 		},
 
-		async play() {
-			if (await store.player.play()) {
+		play() {
+			if (store.player.play()) {
 				store.playing = true
 			}
 		},

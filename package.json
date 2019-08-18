@@ -8,6 +8,7 @@
 		"@thi.ng/bencode": "^0.3.2",
 		"body-scroll-lock": "^2.6.4",
 		"dexie": "^2.0.4",
+		"howler": "^2.1.2",
 		"mobx": "^5.13.0",
 		"mobx-react-lite": "^1.4.1",
 		"react": "^16.8.6",
