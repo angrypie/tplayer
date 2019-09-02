@@ -1,13 +1,17 @@
 import { Howl } from 'howler'
 
+const defaultOnEnd = () => {}
+
 export class Player {
-	constructor() {
+	constructor({ onEnd } = {}) {
 		this.howler = initHowler()
+		this.onEnd = onEnd || defaultOnEnd
 	}
 
 	addUrl(url) {
 		this.howler.unload()
 		this.howler = newHowler(url)
+		this.howler.once('end', this.onEnd)
 	}
 
 	play() {

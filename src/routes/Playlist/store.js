@@ -19,15 +19,35 @@ export const useBookStore = ({ ih, playerStore }) => {
 		torrentInfo: { name: '', files: [], length: 0 },
 		currentFile: { path: [] },
 
-		setCurrentFile(file) {
-			if (file.cached === true) {
-				console.log('file cached')
-				store.currentFile = file
-				setTimeout(() => store.playerStore.play(), 200)
+		getNextFile() {
+			const files = store.torrentInfo.files
+			const currentPath = store.currentFile.path
+			const currentIndex = files.findIndex(
+				({ path }) => path.join('/') === currentPath.join('/')
+			)
+			return files[currentIndex + 1]
+		},
+
+		prepareNextFile() {
+
+		},
+
+		async setCurrentFile(file) {
+			if(typeof file !== 'object') {
 				return
 			}
+			if (file.cached === true) {
+				store.currentFile = file
+				setTimeout(() => store.playerStore.play(), 200)
+				return true
+			}
 			file.state = 'loading'
-			store.getAudio(file)
+			const url = await store.getAudio(file)
+			if(url === null) {
+				file.state = ''
+				alert('File is not available')
+			}
+			return false
 		},
 
 		async setTorrentInfo(ih) {
@@ -51,15 +71,21 @@ export const useBookStore = ({ ih, playerStore }) => {
 			if (ih === undefined || path === undefined || path.length <= 0) {
 				return null
 			}
-			try {
-				const url = await getAudio(ih, path)
+			const url = await getAudio(ih, path)
+			if(url !== null) {
 				store.updateCached({ path }, true)
-				return url
-			} catch (err) {
-				return null
 			}
+			return url
 		},
 	}))
+
+	store.playerStore.player.onEnd = async () => {
+		const nextFile = store.getNextFile()
+		const ok = await store.setCurrentFile(nextFile)
+		if (!ok) {
+			store.setCurrentFile(nextFile)
+		}
+	}
 
 	return store
 }

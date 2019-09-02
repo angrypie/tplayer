@@ -24,6 +24,9 @@ export async function getAudio(ih, pathArr) {
 		}
 		const url = `/data?ih=${ih}&path=${path}`
 		const res = await fetch(url, { mode: 'cors' })
+		if(!res.ok) {
+			throw new Error(res.statusText)
+		}
 		const buf = await res.arrayBuffer()
 		const array = new Uint8Array(buf)
 		const blob = new Blob([array], { type: 'audio/mp3' })
