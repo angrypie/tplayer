@@ -1,6 +1,7 @@
 import { useLocalStore } from 'mobx-react-lite'
 import { getTorrentInfo, getAudio } from './api'
 import { usePlayerStore } from './Player/store'
+import { storage } from './storage'
 
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
@@ -28,12 +29,8 @@ export const useBookStore = ({ ih, playerStore }) => {
 			return files[currentIndex + 1]
 		},
 
-		prepareNextFile() {
-
-		},
-
 		async setCurrentFile(file) {
-			if(typeof file !== 'object') {
+			if (typeof file !== 'object') {
 				return
 			}
 			if (file.cached === true) {
@@ -43,7 +40,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 			}
 			file.state = 'loading'
 			const url = await store.getAudio(file)
-			if(url === null) {
+			if (url === null) {
 				file.state = ''
 				alert('File is not available')
 			}
@@ -72,10 +69,17 @@ export const useBookStore = ({ ih, playerStore }) => {
 				return null
 			}
 			const url = await getAudio(ih, path)
-			if(url !== null) {
+			if (url !== null) {
 				store.updateCached({ path }, true)
 			}
 			return url
+		},
+
+		async cleanBookData(ih) {
+			const result = await storage.removeFilesByIh(ih)
+			if (result) {
+				store.setTorrentInfo(ih)
+			}
 		},
 	}))
 

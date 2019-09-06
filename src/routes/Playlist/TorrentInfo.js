@@ -25,6 +25,7 @@ export const TorrentInfo = observer(({ store }) => {
 				<div className='file-list'>
 					<PlayList store={store} />
 				</div>
+				<CleanBookDataButton store={store} />
 			</div>
 			<style jsx>{`
 				.container {
@@ -91,4 +92,39 @@ const PlayList = observer(({ store }) => {
 			</div>
 		)
 	})
+})
+
+const CleanBookDataButton = observer(({ store }) => {
+	const { torrentInfo, cleanBookData, ih } = store
+
+	const cachedPartsLength = torrentInfo.files.reduce(
+		(total, { cached, length }) => (!cached ? total : total + length),
+		0
+	)
+
+	const clean = () =>
+		window.confirm('Are you sure to delete all downloaded book parts?')
+			? cleanBookData(ih)
+			: null
+
+	if(cachedPartsLength === 0) {
+		return null
+	}
+	return (
+		<div onClick={clean} className='flex justify-center pv2 pointer'>
+			Clean book data ({formatBytes(cachedPartsLength)})
+			<style jsx>{`
+				div {
+					color: #2f37ff;
+					font-weight: 500;
+					font-size: 14px;
+					opacity: 0.5;
+				}
+
+				div:active {
+					opacity: 1;
+				}
+			`}</style>
+		</div>
+	)
 })
