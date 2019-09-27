@@ -10,6 +10,7 @@ async function addTorrent(ih, info) {
 	await db.torrents.add({
 		ih,
 		info: JSON.stringify(info),
+		state: { path: [], time: 0 },
 	})
 }
 
@@ -26,6 +27,11 @@ async function getTorrent(ih) {
 		ih: torrent.ih,
 		info: JSON.parse(torrent.info),
 	}
+}
+
+async function getTorrents(limit = 5) {
+	const torrents = await db.torrents.limit(limit).toArray()
+	return torrents.map(({ ih, info, state }) => ({ ih, info: JSON.parse(info), state }))
 }
 
 async function addFile(ih, path, file) {
@@ -68,6 +74,14 @@ async function removeFilesByIh(ih) {
 	}
 }
 
+async function updateTorrent(ih, data) {
+	try {
+		return await db.torrents.update(ih, data)
+	} catch (err) {
+		console.log(err)
+	}
+}
+
 export const storage = {
 	addTorrent,
 	getTorrent,
@@ -75,4 +89,6 @@ export const storage = {
 	getFile,
 	removeFile,
 	removeFilesByIh,
+	getTorrents,
+	updateTorrent,
 }

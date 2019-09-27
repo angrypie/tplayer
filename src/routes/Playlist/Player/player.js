@@ -15,17 +15,13 @@ export class Player {
 	}
 
 	play() {
-		if (!this.paused) {
-			this.howler.play()
-			return true
-		}
+		this.howler.play()
+		return true
 	}
 
 	pause() {
-		if (this.paused) {
-			this.howler.pause()
-			return true
-		}
+		this.howler.pause()
+		return true
 	}
 
 	seekTo(time) {
@@ -42,10 +38,6 @@ export class Player {
 
 	get currentTime() {
 		return this.howler.seek() || 0
-	}
-
-	get paused() {
-		return this.howler.playing()
 	}
 
 	get duration() {

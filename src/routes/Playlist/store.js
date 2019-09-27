@@ -1,7 +1,8 @@
 import { useLocalStore } from 'mobx-react-lite'
 import { getTorrentInfo, getAudio } from './api'
 import { usePlayerStore } from './Player/store'
-import { storage } from './storage'
+import { storage } from '~/storage'
+import { toJS } from 'mobx'
 
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
@@ -27,6 +28,24 @@ export const useBookStore = ({ ih, playerStore }) => {
 				({ path }) => path.join('/') === currentPath.join('/')
 			)
 			return files[currentIndex + 1]
+		},
+
+		async saveCurrentPlaying() {
+			const { ih, currentFile } = store
+			const { playing, getProgress } = store.playerStore
+			if (!playing) {
+				return
+			}
+
+			storage.updateTorrent(
+				ih,
+				toJS({
+					state: {
+						path: currentFile.path,
+						time: getProgress(),
+					},
+				}, {recurseEverything: true})
+			)
 		},
 
 		async setCurrentFile(file) {
@@ -90,6 +109,8 @@ export const useBookStore = ({ ih, playerStore }) => {
 			store.setCurrentFile(nextFile)
 		}
 	}
+
+	setInterval(store.saveCurrentPlaying, 3000)
 
 	return store
 }

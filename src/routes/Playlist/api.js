@@ -1,5 +1,5 @@
 import { decode } from '@thi.ng/bencode'
-import { storage } from './storage'
+import { storage } from '~/storage'
 
 export async function getTorrentInfo(ih) {
 	const torrent = await storage.getTorrent(ih)
