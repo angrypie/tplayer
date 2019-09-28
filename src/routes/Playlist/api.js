@@ -24,7 +24,7 @@ export async function getAudio(ih, pathArr) {
 		}
 		const url = `/data?ih=${ih}&path=${path}`
 		const res = await fetch(url, { mode: 'cors' })
-		if(!res.ok) {
+		if (!res.ok) {
 			throw new Error(res.statusText)
 		}
 		const buf = await res.arrayBuffer()
@@ -40,9 +40,9 @@ export async function getAudio(ih, pathArr) {
 }
 
 async function transformTorrentInfo(ih, torrent, state) {
-	if(!torrent.files) {
+	if (!torrent.files) {
 		const { length, name } = torrent
-		torrent.files = [ { name, length, path: [name] } ]
+		torrent.files = [{ name, length, path: [name] }]
 	}
 	for (const file of torrent.files) {
 		const cached = await storage.getFile(ih, file.path.join('/'))

@@ -107,7 +107,7 @@ const CleanBookDataButton = observer(({ store }) => {
 			? cleanBookData(ih)
 			: null
 
-	if(cachedPartsLength === 0) {
+	if (cachedPartsLength === 0) {
 		return null
 	}
 	return (

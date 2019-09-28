@@ -32,7 +32,11 @@ async function getTorrent(ih) {
 
 async function getTorrents(limit = 5) {
 	const torrents = await db.torrents.limit(limit).toArray()
-	return torrents.map(({ ih, info, state }) => ({ ih, info: JSON.parse(info), state }))
+	return torrents.map(({ ih, info, state }) => ({
+		ih,
+		info: JSON.parse(info),
+		state,
+	}))
 }
 
 async function addFile(ih, path, file) {

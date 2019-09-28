@@ -7,7 +7,7 @@ export const useLibraryStore = () => {
 
 		async updateLibraryItems() {
 			store.items = await storage.getTorrents()
-		}
+		},
 	}))
 
 	return store
