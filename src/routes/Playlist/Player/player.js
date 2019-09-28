@@ -15,7 +15,9 @@ export class Player {
 	}
 
 	play() {
-		this.howler.play()
+		if (!this.howler.playing()) {
+			this.howler.play()
+		}
 		return true
 	}
 

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { formatBytes } from './utils'
 import { observer } from 'mobx-react-lite'
 import { disableBodyScroll, enableBodyScroll } from 'body-scroll-lock'
+import { comparePath } from '~/utils'
 
 export const TorrentInfo = observer(({ store }) => {
 	const { ih, torrentInfo, setTorrentInfo } = store
@@ -58,11 +59,11 @@ const PlayList = observer(({ store }) => {
 	const position = 'file flex justify-between items-center '
 	const appearance = 'pointer bg-animate-ns'
 	const getColor = path =>
-		currentFile.path.join('/') === path.join('/')
+		comparePath(currentFile.path, path)
 			? 'active white'
 			: 'hover-bg-near-white-ns bg-white'
 
-	const getLabel = ({ path, cached, length, state }) => {
+	const getLabel = ({ cached, length, state }) => {
 		let label = cached ? 'loaded' : formatBytes(length)
 		label = state === 'loading' ? 'loading' : label
 		return label
@@ -96,7 +97,6 @@ const PlayList = observer(({ store }) => {
 
 const CleanBookDataButton = observer(({ store }) => {
 	const { torrentInfo, cleanBookData, ih } = store
-
 	const cachedPartsLength = torrentInfo.files.reduce(
 		(total, { cached, length }) => (!cached ? total : total + length),
 		0

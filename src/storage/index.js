@@ -26,6 +26,7 @@ async function getTorrent(ih) {
 	return {
 		ih: torrent.ih,
 		info: JSON.parse(torrent.info),
+		state: torrent.state,
 	}
 }
 

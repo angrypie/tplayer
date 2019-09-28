@@ -3,6 +3,7 @@ import { getTorrentInfo, getAudio } from './api'
 import { usePlayerStore } from './Player/store'
 import { storage } from '~/storage'
 import { toJS } from 'mobx'
+import { comparePath } from '~/utils'
 
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
@@ -24,8 +25,8 @@ export const useBookStore = ({ ih, playerStore }) => {
 		getNextFile() {
 			const files = store.torrentInfo.files
 			const currentPath = store.currentFile.path
-			const currentIndex = files.findIndex(
-				({ path }) => path.join('/') === currentPath.join('/')
+			const currentIndex = files.findIndex(({ path }) =>
+				comparePath(path, currentPath)
 			)
 			return files[currentIndex + 1]
 		},
@@ -36,25 +37,32 @@ export const useBookStore = ({ ih, playerStore }) => {
 			if (!playing) {
 				return
 			}
-
 			storage.updateTorrent(
 				ih,
-				toJS({
-					state: {
-						path: currentFile.path,
-						time: getProgress(),
+				toJS(
+					{
+						state: {
+							path: currentFile.path,
+							time: getProgress(),
+						},
 					},
-				}, {recurseEverything: true})
+					{ recurseEverything: true }
+				)
 			)
 		},
 
-		async setCurrentFile(file) {
+		async setCurrentFile(file, autoplay = () => {}) {
 			if (typeof file !== 'object') {
 				return
 			}
 			if (file.cached === true) {
 				store.currentFile = file
-				setTimeout(() => store.playerStore.play(), 200)
+				if (autoplay) {
+					setTimeout(() => {
+						store.playerStore.play()
+						autoplay()
+					}, 200)
+				}
 				return true
 			}
 			file.state = 'loading'
@@ -68,13 +76,34 @@ export const useBookStore = ({ ih, playerStore }) => {
 
 		async setTorrentInfo(ih) {
 			const info = await getTorrentInfo(ih)
-			const { name = '', files = [], length = 0 } = info
-			store.torrentInfo = { name: info['name.utf-8'] || name, files, length }
+			const { name = '', files = [], length = 0, state } = info
+			store.torrentInfo = {
+				name: info['name.utf-8'] || name,
+				files,
+				length,
+				state,
+			}
+			// Start play
+			if (state) {
+				files.forEach(file => {
+					if (comparePath(file.path, state.path)) {
+						store.continueLastPlayed(file, state)
+					}
+				})
+			}
+		},
+
+		continueLastPlayed(file, state) {
+			const { seekTo, pause } = store.playerStore
+			store.setCurrentFile(file, () => {
+				seekTo(state.time - 5)
+				setTimeout(pause, 200)
+			})
 		},
 
 		updateCached({ path }, cached) {
-			const file = store.torrentInfo.files.find(
-				({ path: p }) => path.join('/') === p.join('/')
+			const file = store.torrentInfo.files.find(({ path: p }) =>
+				comparePath(path, p)
 			)
 			if (file) {
 				file.cached = cached

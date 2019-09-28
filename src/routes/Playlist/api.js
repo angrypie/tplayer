@@ -4,7 +4,7 @@ import { storage } from '~/storage'
 export async function getTorrentInfo(ih) {
 	const torrent = await storage.getTorrent(ih)
 	if (torrent !== null) {
-		return await transformTorrentInfo(ih, torrent.info)
+		return await transformTorrentInfo(ih, torrent.info, torrent.state)
 	}
 	const url = `/info?ih=${ih}`
 	const res = await fetch(url, { mode: 'cors' })
@@ -39,7 +39,7 @@ export async function getAudio(ih, pathArr) {
 	}
 }
 
-async function transformTorrentInfo(ih, torrent) {
+async function transformTorrentInfo(ih, torrent, state) {
 	if(!torrent.files) {
 		const { length, name } = torrent
 		torrent.files = [ { name, length, path: [name] } ]
@@ -49,5 +49,5 @@ async function transformTorrentInfo(ih, torrent) {
 		file.cached = cached !== null
 		file.state = 'ready'
 	}
-	return torrent
+	return { ...torrent, state }
 }

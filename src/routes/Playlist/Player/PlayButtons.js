@@ -6,7 +6,6 @@ export const PlayButtons = observer(({ store }) => {
 	const { playing, togglePlaying, getProgress } = store
 	const seekForward = () => store.seekTo(getProgress() + rewindStep)
 	const seekBackward = () => store.seekTo(getProgress() - rewindStep)
-
 	return (
 		<div className='controls flex justify-around items-center'>
 			<div className='f3 fw6 pointer' onClick={seekBackward}>
