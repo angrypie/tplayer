@@ -139,7 +139,9 @@ export const useBookStore = ({ ih, playerStore }) => {
 		}
 	}
 
+	//TODO memory leak, need to clean interval on every interval creation
 	setInterval(store.saveCurrentPlaying, 3000)
+	console.log("TODO clean interval (new interval created)")
 
 	return store
 }
