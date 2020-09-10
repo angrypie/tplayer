@@ -4,6 +4,7 @@ import { usePlayerStore } from './Player/store'
 import { storage } from '~/storage'
 import { toJS } from 'mobx'
 import { comparePath } from '~/utils'
+import natsort from 'natsort'
 
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
@@ -77,6 +78,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 		async setTorrentInfo(ih) {
 			const info = await getTorrentInfo(ih)
 			const { name = '', files = [], length = 0, state } = info
+			files.sort((a, b) => natsort()(a.path.join('/'), b.path.join('/')))
 			store.torrentInfo = {
 				name: info['name.utf-8'] || name,
 				files,
@@ -141,7 +143,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 
 	//TODO memory leak, need to clean interval on every interval creation
 	setInterval(store.saveCurrentPlaying, 3000)
-	console.log("TODO clean interval (new interval created)")
+	console.log('TODO clean interval (new interval created)')
 
 	return store
 }
