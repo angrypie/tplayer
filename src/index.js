@@ -1,4 +1,5 @@
 import React from 'react'
+import 'mobx-react-lite/batchingForReactDom'
 import ReactDOM from 'react-dom'
 import * as serviceWorker from './serviceWorker'
 
