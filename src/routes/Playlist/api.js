@@ -1,5 +1,5 @@
-import { decode } from '@thi.ng/bencode'
 import { storage } from '~/storage'
+import bencode from 'bencode'
 
 export async function getTorrentInfo(ih) {
 	const torrent = await storage.getTorrent(ih)
@@ -9,7 +9,7 @@ export async function getTorrentInfo(ih) {
 	const url = `/info?ih=${ih}`
 	const res = await fetch(url, { mode: 'cors' })
 	const body = await res.arrayBuffer()
-	const info = decode(new Uint8Array(body))
+	const info = bencode.decode(body, 'utf8')
 	storage.addTorrent(ih, info)
 	return await transformTorrentInfo(ih, info)
 }
