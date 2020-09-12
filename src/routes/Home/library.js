@@ -3,7 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { Link } from 'wouter'
 
 export const Library = observer(({ store }) => {
-	const books = store.items.map(({ info, ih, state }, i) => {
+	const renderBook = ({ info, ih, state }, i) => {
 		const name = info['name.utf-8'] || info['name']
 		return (
 			<Link key={i} to={`/playlist/${ih}`}>
@@ -13,9 +13,19 @@ export const Library = observer(({ store }) => {
 				</div>
 			</Link>
 		)
-	})
+	}
 
-	return <div className='flex flex-column mh3'>{books}</div>
+	const recent = store.items.slice(0, 2).map(renderBook)
+	const library = store.items.map(renderBook)
+
+	return (
+		<div className='flex flex-column mh3'>
+			<div className='f3 b'>Recent</div>
+			{recent}
+			<div className='f3 b'>Library</div>
+			{library}
+		</div>
+	)
 })
 
 const BookState = ({ state }) => {
