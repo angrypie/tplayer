@@ -45,6 +45,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 						state: {
 							path: currentFile.path,
 							time: getProgress(),
+							updatedAt: new Date().valueOf(),
 						},
 					},
 					{ recurseEverything: true }

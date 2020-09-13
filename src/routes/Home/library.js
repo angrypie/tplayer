@@ -15,8 +15,16 @@ export const Library = observer(({ store }) => {
 		)
 	}
 
-	const recent = store.items.slice(0, 2).map(renderBook)
-	const library = store.items.map(renderBook)
+	const updatedAt = book => !book.state ? 0 : book.state.updatedAt
+	const compareUpdatedAt = (a, b) => updatedAt(b) - updatedAt(a)
+
+	const books =  store.items.slice()
+
+	const [rest, history] = partition(books, ({ state }) => state !== undefined && state.updatedAt !== undefined)
+	const sorted = history.sort(compareUpdatedAt)
+
+	const recent = sorted.slice(0,1).map(renderBook)
+	const library = sorted.slice(1).concat(rest).map(renderBook)
 
 	return (
 		<div className='flex flex-column mh3'>
@@ -34,3 +42,6 @@ const BookState = ({ state }) => {
 	}
 	return <div className='red'>*</div>
 }
+
+//[rest, passed]
+const partition = (arr, f) => arr.reduce((a, x) => a[f(x)+0].push(x) && a, [[],[]])
