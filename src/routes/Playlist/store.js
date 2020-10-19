@@ -1,4 +1,4 @@
-import { useLocalStore } from 'mobx-react-lite'
+import { useLocalObservable } from 'mobx-react-lite'
 import { getTorrentInfo, getAudio } from './api'
 import { usePlayerStore } from './Player/store'
 import { storage } from '~/storage'
@@ -16,7 +16,7 @@ export const useBookStores = ({ ih }) => {
 }
 
 export const useBookStore = ({ ih, playerStore }) => {
-	const store = useLocalStore(() => ({
+	const store = useLocalObservable(() => ({
 		playerStore: playerStore,
 		ih,
 		audio: null,
@@ -40,16 +40,13 @@ export const useBookStore = ({ ih, playerStore }) => {
 			}
 			storage.updateTorrent(
 				ih,
-				toJS(
-					{
-						state: {
-							path: currentFile.path,
-							time: getProgress(),
-							updatedAt: new Date().valueOf(),
-						},
+				{
+					state: {
+						path: toJS(currentFile.path),
+						time: getProgress(),
+						updatedAt: new Date().valueOf(),
 					},
-					{ recurseEverything: true }
-				)
+				}
 			)
 		},
 
@@ -76,19 +73,23 @@ export const useBookStore = ({ ih, playerStore }) => {
 			return false
 		},
 
+		updateTorrentInfo(torrentInfo) {
+			store.torrentInfo = torrentInfo
+		},
+
 		async setTorrentInfo(ih) {
 			const info = await getTorrentInfo(ih)
 			const { name = '', files = [], length = 0, state } = info
 			files.sort((a, b) => natsort()(a.path.join('/'), b.path.join('/')))
-			store.torrentInfo = {
+			store.updateTorrentInfo({
 				name: info['name.utf-8'] || name,
 				files,
 				length,
 				state,
-			}
+			})
 			// Start play
 			if (state) {
-				files.forEach(file => {
+				files.forEach((file) => {
 					if (comparePath(file.path, state.path)) {
 						store.continueLastPlayed(file, state)
 					}

@@ -1,8 +1,8 @@
-import { useLocalStore } from 'mobx-react-lite'
+import { useLocalObservable } from 'mobx-react-lite'
 import { storage } from '~/storage'
 
 export const useLibraryStore = () => {
-	const store = useLocalStore(() => ({
+	const store = useLocalObservable(() => ({
 		items: [],
 
 		async updateLibraryItems() {

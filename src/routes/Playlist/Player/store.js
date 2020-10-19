@@ -1,4 +1,4 @@
-import { useLocalStore } from 'mobx-react-lite'
+import { useLocalObservable } from 'mobx-react-lite'
 import { Player } from './player'
 
 export const maxVolume = 1
@@ -12,7 +12,7 @@ export const defaultPlayerState = {
 }
 
 export const usePlayerStore = () => {
-	const store = useLocalStore(() => ({
+	const store = useLocalObservable(() => ({
 		...addState(() => store, defaultPlayerState),
 
 		seekTo(p) {

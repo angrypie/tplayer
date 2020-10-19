@@ -54,7 +54,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/core@npm:^7.1.0, @babel/core@npm:^7.11.6, @babel/core@npm:^7.4.5":
+"@babel/core@npm:^7.1.0, @babel/core@npm:^7.12.3, @babel/core@npm:^7.4.5":
   version: 7.12.3
   resolution: "@babel/core@npm:7.12.3"
   dependencies:
@@ -109,13 +109,13 @@ __metadata:
   linkType: hard
 
 "@babel/helper-builder-react-jsx-experimental@npm:^7.12.1":
-  version: 7.12.1
-  resolution: "@babel/helper-builder-react-jsx-experimental@npm:7.12.1"
+  version: 7.12.4
+  resolution: "@babel/helper-builder-react-jsx-experimental@npm:7.12.4"
   dependencies:
     "@babel/helper-annotate-as-pure": ^7.10.4
     "@babel/helper-module-imports": ^7.12.1
     "@babel/types": ^7.12.1
-  checksum: 256deeea3a44223d9da2f17103b4d8e8f5b2bc21b7aa018785ce6de9bae076d712a3d62ab39316796f01723c7a45ef526594c0b668e81c90fcc167b419922cc5
+  checksum: 246b77aedf5ee458338319450dbd092549f00fe4c3915521fdb8e80af2061ee86b875410482bed07bb906fc8e623cafd46e0751c5317b4c27f9041bcf7d09501
   languageName: node
   linkType: hard
 
@@ -533,7 +533,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/plugin-proposal-object-rest-spread@npm:^7.11.0, @babel/plugin-proposal-object-rest-spread@npm:^7.12.1, @babel/plugin-proposal-object-rest-spread@npm:^7.9.0":
+"@babel/plugin-proposal-object-rest-spread@npm:^7.12.1, @babel/plugin-proposal-object-rest-spread@npm:^7.9.0":
   version: 7.12.1
   resolution: "@babel/plugin-proposal-object-rest-spread@npm:7.12.1"
   dependencies:
@@ -1590,7 +1590,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@craco/craco@npm:^5.6.4":
+"@craco/craco@npm:^5.7.0":
   version: 5.7.0
   resolution: "@craco/craco@npm:5.7.0"
   dependencies:
@@ -3255,7 +3255,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"body-scroll-lock@npm:^3.1.3":
+"body-scroll-lock@npm:^3.1.5":
   version: 3.1.5
   resolution: "body-scroll-lock@npm:3.1.5"
   checksum: e8de58edc0fd7d483e3971045ff83fe6d722592d5153e9bfc9da2962a179a6522b432a4b35344bc8ae522eec080cc87301ce4ded4878f26254bf42a4f26d27ed
@@ -7237,6 +7237,15 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
+"is-core-module@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "is-core-module@npm:2.0.0"
+  dependencies:
+    has: ^1.0.3
+  checksum: de99dfbdf14d254f6d078aa37113512295acef3cfff5fb39fdf8020b04788535eae6da39e02b0c4ad07f7bc79594de8d5aeb4fce66f97feb9c597d7d6d6d43d4
+  languageName: node
+  linkType: hard
+
 "is-data-descriptor@npm:^0.1.4":
   version: 0.1.4
   resolution: "is-data-descriptor@npm:0.1.4"
@@ -9014,25 +9023,25 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
-"mobx-react-lite@npm:^2.2.1":
-  version: 2.2.2
-  resolution: "mobx-react-lite@npm:2.2.2"
+"mobx-react-lite@npm:^3.0.1":
+  version: 3.0.1
+  resolution: "mobx-react-lite@npm:3.0.1"
   peerDependencies:
-    mobx: ^4.0.0 || ^5.0.0
+    mobx: ^6.0.0
     react: ^16.8.0
   peerDependenciesMeta:
     react-dom:
       optional: true
     react-native:
       optional: true
-  checksum: 8e354b54c691b5d2cdff413e9aee6ffddb2e7865272d1364118f4ba745e9e6ac026a345888ad69d216261309da04e3798f45f7d35fc6b2ed3c55530ec2ca5b20
+  checksum: 17f16d1bd38f8b621d8011905a782a8363b645024ee8b0a63f27e0e67fc0580e60aacf1faff70cfe9bb5704d0c0b7a12659b85562647ef6000994278d9eddc44
   languageName: node
   linkType: hard
 
-"mobx@npm:^5.15.6":
-  version: 5.15.7
-  resolution: "mobx@npm:5.15.7"
-  checksum: 4e92f8d96394e2f34452fa63aa89f5a4501ae98b083cb1605e80b8b9941a756ea06a6e0093c7e58d975fcfbd3c44eb64c2296b1b983182cd3f92fd18f753992d
+"mobx@npm:^6.0.1":
+  version: 6.0.1
+  resolution: "mobx@npm:6.0.1"
+  checksum: b0923287360a300bbb04942c9c78fd1b40674122820b18dbfbec4779dd848d7aaad5268edbfc87b56c6f29b62f078495c76a6eae6ddacc56185f0a407cbaa298
   languageName: node
   linkType: hard
 
@@ -10942,7 +10951,7 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
-"prettier@npm:^2.1.1":
+"prettier@npm:^2.1.2":
   version: 2.1.2
   resolution: "prettier@npm:2.1.2"
   bin:
@@ -11273,7 +11282,7 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
-"react-dom@npm:^16.13.1":
+"react-dom@npm:^16.14.0":
   version: 16.14.0
   resolution: "react-dom@npm:16.14.0"
   dependencies:
@@ -11305,20 +11314,20 @@ fsevents@^1.2.7:
   version: 0.0.0-use.local
   resolution: "react-mobx-starter@workspace:."
   dependencies:
-    "@babel/core": ^7.11.6
-    "@babel/plugin-proposal-object-rest-spread": ^7.11.0
-    "@craco/craco": ^5.6.4
+    "@babel/core": ^7.12.3
+    "@babel/plugin-proposal-object-rest-spread": ^7.12.1
+    "@craco/craco": ^5.7.0
     babel-plugin-root-import: ^6.5.0
     bencode: ^2.0.1
-    body-scroll-lock: ^3.1.3
+    body-scroll-lock: ^3.1.5
     dexie: ^3.0.2
     howler: ^2.2.0
-    mobx: ^5.15.6
-    mobx-react-lite: ^2.2.1
+    mobx: ^6.0.1
+    mobx-react-lite: ^3.0.1
     natsort: ^2.0.2
-    prettier: ^2.1.1
-    react: ^16.13.1
-    react-dom: ^16.13.1
+    prettier: ^2.1.2
+    react: ^16.14.0
+    react-dom: ^16.14.0
     react-scripts: ^3.4.3
     rimraf: ^3.0.2
     styled-jsx: ^3.3.0
@@ -11398,7 +11407,7 @@ fsevents@^1.2.7:
   languageName: node
   linkType: hard
 
-"react@npm:^16.13.1":
+"react@npm:^16.14.0":
   version: 16.14.0
   resolution: "react@npm:16.14.0"
   dependencies:
@@ -11806,11 +11815,12 @@ resolve@1.15.0:
   linkType: hard
 
 "resolve@^1.10.0, resolve@^1.12.0, resolve@^1.13.1, resolve@^1.15.1, resolve@^1.3.2, resolve@^1.8.1":
-  version: 1.17.0
-  resolution: "resolve@npm:1.17.0"
+  version: 1.18.0
+  resolution: "resolve@npm:1.18.0"
   dependencies:
+    is-core-module: ^2.0.0
     path-parse: ^1.0.6
-  checksum: 5e3cdb8cf68c20b0c5edeb6505e7fab20c6776af0cae4b978836e557420aef7bb50acd25339bbb143b7f80533aa1988c7e827a0061aee9c237926a7d2c41f8d0
+  checksum: 120cd305f74ab1241c7d5ad4180e22d666bc44efe72a83d9fdade04283e64e3e593ffef9aad6f9b607663186f2c9ae296c7226eff76f70587bea714c52ed960d
   languageName: node
   linkType: hard
 
@@ -11831,11 +11841,12 @@ resolve@1.15.0:
   linkType: hard
 
 "resolve@patch:resolve@^1.10.0#builtin<compat/resolve>, resolve@patch:resolve@^1.12.0#builtin<compat/resolve>, resolve@patch:resolve@^1.13.1#builtin<compat/resolve>, resolve@patch:resolve@^1.15.1#builtin<compat/resolve>, resolve@patch:resolve@^1.3.2#builtin<compat/resolve>, resolve@patch:resolve@^1.8.1#builtin<compat/resolve>":
-  version: 1.17.0
-  resolution: "resolve@patch:resolve@npm%3A1.17.0#builtin<compat/resolve>::version=1.17.0&hash=3388aa"
+  version: 1.18.0
+  resolution: "resolve@patch:resolve@npm%3A1.18.0#builtin<compat/resolve>::version=1.18.0&hash=3388aa"
   dependencies:
+    is-core-module: ^2.0.0
     path-parse: ^1.0.6
-  checksum: 4bcfb568860d0c361fd16c26b6fce429711138ff0de7dd353bdd73fcb5c7eede2f4602d40ccfa08ff45ec7ef9830845eab2021a46036af0a6e5b58bab1ff6399
+  checksum: 615b105705780f3af481a0dc3c0c14bac364914d5bff0c1b37fbe85e860a6cc5f646045a97ce8217798d886a082972d4e06e0e37ce2e9ff56d1dc5998816f3ac
   languageName: node
   linkType: hard
 
