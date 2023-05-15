@@ -6,11 +6,10 @@ const babel = {
 	],
 }
 
-//const webpack = {}
+// const webpack = {devServer: { port: 80, allowedHosts: ['domain.angrypie.dev']}}
 
 module.exports = {
 	babel,
-	//webpack: {
-	//configure: webpack,
-	//},
+	// devServer: webpack.devServer,
 }
+
