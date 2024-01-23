@@ -14,8 +14,8 @@ var (
 	//go:embed build/index.html
 	indexHtml embed.FS
 
-	distDirFS     = echo.MustSubFS(dist, "build")
 	distIndexHtml = echo.MustSubFS(indexHtml, "build")
+	distStaticFS  = echo.MustSubFS(dist, "build/static")
 )
 
 func main() {
@@ -25,7 +25,8 @@ func main() {
 
 	//handle static from /data
 	e.FileFS("/", "index.html", distIndexHtml)
-	e.StaticFS("/static", distDirFS)
+	e.FileFS("/playlist/*", "index.html", distIndexHtml)
+	//TODO setup proper redirect for spa (for not it's only one page so it's ok)
 
 	url1, err := url.Parse("http://localhost:8080")
 	if err != nil {
@@ -52,8 +53,7 @@ func main() {
 	// e.Use(middleware.Proxy(middleware.NewRandomBalancer(targets)))
 
 	//run ./confluence command shell command in separate process
-	cmd := exec.Command("~/go/bin/confluence")
-
+	cmd := exec.Command("go", "run", "github.com/anacrolix/confluence@latest", "-sqliteStorage=tplayer.sqlite")
 	if err := cmd.Start(); err != nil {
 		// fmt.Printf("Failed to start cmd: %v", err)
 		panic("Failed to start cmd " + err.Error())

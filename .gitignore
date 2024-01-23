@@ -29,3 +29,5 @@ yarn-error.log*
 !.yarn/sdks
 !.yarn/versions
 .pnp.*
+
+tplayer.sqlite
