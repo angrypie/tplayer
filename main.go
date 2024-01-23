@@ -23,10 +23,10 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
 
-	//handle static from /data
+	e.StaticFS("/static", distStaticFS)
 	e.FileFS("/", "index.html", distIndexHtml)
 	e.FileFS("/playlist/*", "index.html", distIndexHtml)
-	//TODO setup proper redirect for spa (for not it's only one page so it's ok)
+	//TODO setup proper redirect for spa (for now it's only one page so it's ok)
 
 	url1, err := url.Parse("http://localhost:8080")
 	if err != nil {
