@@ -5,6 +5,7 @@ import { storage } from '~/storage'
 import { toJS } from 'mobx'
 import { comparePath } from '~/utils'
 import natsort from 'natsort'
+import React from 'react'
 
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
@@ -49,17 +50,16 @@ export const useBookStore = ({ ih, playerStore }) => {
 				}
 			)
 		},
-
-		async setCurrentFile(file, autoplay = () => {}) {
+		//set current file to play, and seek to last played position if state provided
+		async setCurrentFile(file, state = undefined) {
 			if (typeof file !== 'object') {
 				return
 			}
 			if (file.cached === true) {
 				store.currentFile = file
-				if (autoplay) {
+				if (state !== undefined) {
 					setTimeout(() => {
-						store.playerStore.play()
-						autoplay()
+						store.playerStore.seekTo(state.time - 5)
 					}, 200)
 				}
 				return true
@@ -98,11 +98,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 		},
 
 		continueLastPlayed(file, state) {
-			const { seekTo, pause } = store.playerStore
-			store.setCurrentFile(file, () => {
-				seekTo(state.time - 5)
-				setTimeout(pause, 200)
-			})
+			store.setCurrentFile(file, state)
 		},
 
 		updateCached({ path }, cached) {
@@ -144,8 +140,11 @@ export const useBookStore = ({ ih, playerStore }) => {
 	}
 
 	//TODO memory leak, need to clean interval on every interval creation
-	setInterval(store.saveCurrentPlaying, 3000)
-	console.log('TODO clean interval (new interval created)')
+	React.useEffect(() => {
+		const interval = setInterval(store.saveCurrentPlaying, 3000)
+		return () => clearInterval(interval)
+	}, [ih, store])
+
 
 	return store
 }
