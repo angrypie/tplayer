@@ -64,6 +64,7 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 	const calc = v => Math.round((v * 10000) / duration) / 100
 	const d = calc(duration - position)
 	const p = calc(position)
+
 	const touchMove = e => {
 		setControlled(true)
 		const touch = e.targetTouches[0]
@@ -72,34 +73,46 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 		setPosition(numberOrLimit((x / w) * duration, 0, duration))
 	}
 
-	const releaseControll = e => {
+	const releaseControll = () => {
+		setProgress(position)
+		setTimeout(() => setControlled(false), 200)
+	}
+
+	const clickSetPosition = e => {
+		const x = e.clientX - progressRef.current.getBoundingClientRect().x
+		const w = progressRef.current.offsetWidth
+		const position = numberOrLimit((x / w) * duration, 0, duration)
+		setPosition(position)
 		setProgress(position)
 		setTimeout(() => setControlled(false), 200)
 	}
 
 	return (
 		<div
-			className='container h2 w-100 flex flex-column justify-center'
+			className='container h2 w-100 flex flex-column justify-center pointer'
 			ref={progressRef}
 			onTouchMove={touchMove}
 			onTouchEnd={releaseControll}
+			onClick={clickSetPosition}
 		>
 			<div className='flex items-center h1'>
 				<div style={{ width: `${p}%` }} className='progress'></div>
 				<div style={{ width: `${d}%` }} className='duration'></div>
 			</div>
 
-			{typeof displayMeasures !== 'function' ? null : (
-				<div className='flex justify-between'>
-					<div className='measure'>{displayMeasures(position)}</div>
-					<div className='measure'>-{displayMeasures(duration - position)}</div>
-				</div>
-			)}
+			{
+				typeof displayMeasures !== 'function' ? null : (
+					<div className='flex justify-between'>
+						<div className='measure'>{displayMeasures(position)}</div>
+						<div className='measure'>-{displayMeasures(duration - position)}</div>
+					</div>
+				)
+			}
 
 			<style jsx>{`
 				.progress {
 					background: black;
-					height: 5px;
+					height: 6px;
 				}
 
 				.duration {
@@ -113,7 +126,7 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 					font-weight: 500;
 				}
 			`}</style>
-		</div>
+		</div >
 	)
 }
 
