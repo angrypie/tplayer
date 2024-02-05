@@ -68,13 +68,21 @@ async function removeFile(ih, path) {
 
 async function removeFilesByIh(ih) {
 	try {
-		await db.files
-			.where('[ih+path]')
-			.between([ih, Dexie.minKey], [ih, Dexie.maxKey])
-			.delete()
+		await db.files.where('ih').equals(ih).delete()
 		return true
 	} catch (err) {
 		alert('removing file error: ' + JSON.stringify(err))
+		return false
+	}
+}
+
+async function removeFilesAndTorrent(ih) {
+	try {
+		await removeFilesByIh(ih)
+		await db.torrents.where('ih').equals(ih).delete()
+		return true
+	} catch (err) {
+		alert('removing files and torernt error: ' + JSON.stringify(err))
 		return false
 	}
 }
@@ -94,6 +102,7 @@ export const storage = {
 	getFile,
 	removeFile,
 	removeFilesByIh,
+	removeFilesAndTorrent,
 	getTorrents,
 	updateTorrent,
 }

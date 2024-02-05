@@ -26,7 +26,7 @@ export const TorrentInfo = observer(({ store }) => {
 				<div className='file-list'>
 					<PlayList store={store} />
 				</div>
-				<CleanBookDataButton store={store} />
+				<CleanBookDataButtons store={store} />
 			</div>
 			<style jsx>{`
 				.container {
@@ -95,8 +95,8 @@ const PlayList = observer(({ store }) => {
 	})
 })
 
-const CleanBookDataButton = observer(({ store }) => {
-	const { torrentInfo, cleanBookData, ih } = store
+const CleanBookDataButtons = observer(({ store }) => {
+	const { torrentInfo, cleanBookData, removeBook, ih } = store
 	const cachedPartsLength = torrentInfo.files.reduce(
 		(total, { cached, length }) => (!cached ? total : total + length),
 		0
@@ -107,21 +107,30 @@ const CleanBookDataButton = observer(({ store }) => {
 			? cleanBookData(ih)
 			: null
 
-	if (cachedPartsLength === 0) {
-		return null
-	}
+
+	const remove = () =>
+		window.confirm('Are you sure to remove this book from library?')
+			? removeBook(ih).then((ok) => ok && window.history.pushState(null, null, '/'))
+			: null
+
+
 	return (
-		<div onClick={clean} className='flex justify-center pv2 pointer'>
-			Clean book data ({formatBytes(cachedPartsLength)})
+		<div className='flex-row'>
+			<div onClick={clean} className='button flex justify-center pv2 pointer'>
+				Clean book data ({formatBytes(cachedPartsLength)})
+			</div>
+			<div onClick={remove} className='button flex justify-center pv2 pointer'>
+				Remove Book from Library
+			</div>
 			<style jsx>{`
-				div {
+				.button {
 					color: #2f37ff;
 					font-weight: 500;
 					font-size: 14px;
 					opacity: 0.5;
 				}
 
-				div:active {
+				.button:active {
 					opacity: 1;
 				}
 			`}</style>

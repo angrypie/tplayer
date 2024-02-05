@@ -129,6 +129,11 @@ export const useBookStore = ({ ih, playerStore }) => {
 				store.setTorrentInfo(ih)
 			}
 		},
+
+		async removeBook(ih) {
+			const result = await storage.removeFilesAndTorrent(ih)
+			return result
+		},
 	}))
 
 	store.playerStore.player.onEnd = async () => {
