@@ -4,7 +4,7 @@ import { Link } from 'wouter'
 export const Nav = () => (
 	<div className='nav flex justify-end'>
 		<Link href='/'>
-			<div className='button flex justify-center items-center pointer bg-black'>
+			<div className='button flex justify-center items-center pointer bg-black dim'>
 				<span className='b white'>to library</span>
 			</div>
 		</Link>

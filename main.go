@@ -67,8 +67,8 @@ func main() {
 	e.FileFS("/playlist/*", "index.html", distIndexHtml)
 	//TODO setup proper redirect for spa (for now it's only one page so it's ok)
 
-	// Initialize SQLite database connection
-	db, err := sql.Open("sqlite", sqliteDB)
+	// Initialize SQLite database connection reoad mode
+	db, err := sql.Open("sqlite", "file:"+sqliteDB+"?mode=ro")
 	if err != nil {
 		e.Logger.Fatal(err)
 	}

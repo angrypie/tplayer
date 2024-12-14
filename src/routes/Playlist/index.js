@@ -5,7 +5,6 @@ import { Nav } from './Nav'
 import { useBookStores } from './store'
 
 function App({ params: { ih } }) {
-	//const ih = '4C5177EC005D4BDEB2C6CFE880EDCB6E0268A36E'
 
 	const bookStores = useBookStores({ ih })
 	const store = bookStores.bookStore
@@ -21,17 +20,9 @@ function App({ params: { ih } }) {
 			<div className='player'>
 				<File playerStore={bookStores.playerStore} store={store} />
 			</div>
-			<style>{`
-				html, body {
-					font-family: system-ui;
-				}
-			`}</style>
 			<style jsx>{`
 				.container {
 					height: ${window.innerHeight}px;
-					max-width: 500px;
-					display: flex;
-					flex-direction: column;
 				}
 
 				.nav {

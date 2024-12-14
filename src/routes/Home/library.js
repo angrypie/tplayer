@@ -29,9 +29,9 @@ export const Library = observer(({ store }) => {
 	return (
 		<div className='flex flex-column mh3'>
 			<div className='f3 b'>Recent</div>
-			{recent}
+			{recent.length > 0 ? recent : <div className='mv3 gray'>No recent books</div>}
 			<div className='f3 b'>Library</div>
-			{library}
+			{library.length > 0 ? library : <div className='mv3 gray'>No books in library</div>}
 		</div>
 	)
 })
@@ -47,56 +47,56 @@ const BookState = ({ state }) => {
 const partition = (arr, f) => arr.reduce((a, x) => a[f(x) + 0].push(x) && a, [[], []])
 
 export const AvailableBooks = () => {
-    const [books, setBooks] = React.useState([])
-    const [isLoading, setIsLoading] = React.useState(false)
-    const [isVisible, setIsVisible] = React.useState(false)
+	const [books, setBooks] = React.useState([])
+	const [isLoading, setIsLoading] = React.useState(false)
+	const [isVisible, setIsVisible] = React.useState(false)
 
-    const fetchBooks = async () => {
-        setIsLoading(true)
-        try {
-            const torrents = await getAvailableTorrents()
-            // Sort by lastUsed in descending order
-            const sortedTorrents = torrents.sort((a, b) => 
-                new Date(b.lastUsed) - new Date(a.lastUsed)
-            )
-            setBooks(sortedTorrents)
-            setIsVisible(true)
-        } finally {
-            setIsLoading(false)
-        }
-    }
+	const fetchBooks = async () => {
+		setIsLoading(true)
+		try {
+			const torrents = await getAvailableTorrents()
+			// Sort by lastUsed in descending order
+			const sortedTorrents = torrents.sort((a, b) =>
+				new Date(b.lastUsed) - new Date(a.lastUsed)
+			)
+			setBooks(sortedTorrents)
+			setIsVisible(true)
+		} finally {
+			setIsLoading(false)
+		}
+	}
 
-    return (
-        <div className="available-books">
-            {!isVisible ? (
-                <button 
-                    className="load-button" 
-                    onClick={fetchBooks}
-                    disabled={isLoading}
-                >
-                    {isLoading ? 'Loading...' : 'Show Available Books'}
-                </button>
-            ) : (
-                <>
-                    <h2>Available Books</h2>
-                    <div className="books-grid">
-                        {books.map(book => (
-                            <Link 
-                                key={book.infoHash}
-                                href={`/playlist/${book.infoHash}`}
-                            >
-                                <a className="book-item">
-                                    <div className="book-title">{book.name}</div>
-                                    <div className="book-meta">
-                                        <span>Last played: {book.lastUsed.toLocaleDateString()}</span>
-                                    </div>
-                                </a>
-                            </Link>
-                        ))}
-                    </div>
-                </>
-            )}
-            <style jsx>{`
+	return (
+		<div className="available-books">
+			{!isVisible ? (
+				<button
+					className="load-button"
+					onClick={fetchBooks}
+					disabled={isLoading}
+				>
+					{isLoading ? 'Loading...' : 'Show books available on server'}
+				</button>
+			) : (
+					<>
+						<h2>Available Books</h2>
+						<div className="books-grid">
+							{books.map(book => (
+								<Link
+									key={book.infoHash}
+									href={`/playlist/${book.infoHash}`}
+								>
+									<a className="book-item">
+										<div className="book-title">{book.name}</div>
+										<div className="book-meta">
+											<span>Last played: {book.lastUsed.toLocaleDateString()}</span>
+										</div>
+									</a>
+								</Link>
+							))}
+						</div>
+					</>
+				)}
+			<style jsx>{`
                 .available-books {
                     padding: 1rem;
                 }
@@ -146,6 +146,6 @@ export const AvailableBooks = () => {
                     justify-content: space-between;
                 }
             `}</style>
-        </div>
-    )
+		</div>
+	)
 }

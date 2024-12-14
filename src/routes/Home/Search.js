@@ -18,8 +18,10 @@ export const Search = () => {
 
 	return (
 		<div className='flex'>
-			<input type='text' ref={searchRef} />
-			<button onClick={() => searchBook()}>Search</button>
+			<input type='text' ref={searchRef} className='flex-auto' placeholder='pastemagnet link or info hash'/>
+			<div onClick={() => searchBook()} className='f6 pointer dim ph3 pv2 dib white bg-black'>
+				<span className='b white'>search</span>
+			</div>
 		</div>
 	)
 }
