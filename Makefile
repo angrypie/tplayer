@@ -1,5 +1,6 @@
 run: install-go-deps
 	./tplayer
+#if frontend have no changes there is no need to rebuild it, only go build needed (restore)
 snapshot: prod
 	tar -czvf build.tar.gz build
 restore: install-go-deps

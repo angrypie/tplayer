@@ -51,3 +51,24 @@ async function transformTorrentInfo(ih, torrent, state) {
 	}
 	return { ...torrent, state }
 }
+
+export async function getAvailableTorrents() {
+    try {
+        const response = await fetch('/api/torrents', { mode: 'cors' });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const torrents = await response.json();
+        return torrents.map(torrent => ({
+            name: torrent.name,
+			infoHash: torrent.info_hash,
+            storeTime: new Date(torrent.store_time),
+            lastUsed: new Date(torrent.last_used),
+            accessCount: torrent.access_count,
+            dataId: torrent.data_id
+        }));
+    } catch (error) {
+        console.error('Error fetching available torrents:', error);
+        return [];
+    }
+}

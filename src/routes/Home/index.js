@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { Search } from './Search'
-import { Library } from './library'
+import { AvailableBooks, Library } from './library'
 import { useLibraryStore } from './libraryStore'
 
 const Home = () => {
@@ -13,6 +13,7 @@ const Home = () => {
 			<Search />
 			<div className='flex flex-column'>
 				<Library store={store} />
+				<AvailableBooks />
 			</div>
 		</div>
 	)
