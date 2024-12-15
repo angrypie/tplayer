@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Player } from './Player'
 import { observer } from 'mobx-react-lite'
 
-export const File = observer(({ store, playerStore }) => {
+export const File = observer(({ store }) => {
 	//Set audio obeject URL
 	const { ih, getAudio, currentFile } = store
 	const [audio, setAudio] = useState(null)
@@ -28,5 +28,5 @@ export const File = observer(({ store, playerStore }) => {
 		},
 		[audio]
 	)
-	return <Player audio={audio} store={playerStore} />
+	return <Player audio={audio} store={store} />
 })

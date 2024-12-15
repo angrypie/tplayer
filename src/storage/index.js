@@ -1,9 +1,10 @@
 import Dexie from 'dexie'
 
-const db = new Dexie('books_db')
-db.version(1).stores({
+const db = new Dexie('books')
+db.version(2).stores({
 	torrents: `ih`,
 	files: `[ih+path]`,
+	notes: `++id, ih`, //notes attached to specific file
 })
 
 async function addTorrent(ih, info) {
@@ -95,6 +96,26 @@ async function updateTorrent(ih, data) {
 	}
 }
 
+async function addNote(ih, path, time, note) {
+	await db.notes.add({ ih, path, time, note });
+}
+
+async function getNote(id) {
+	const note = await db.notes.get(id)
+	return note
+}
+
+async function getAllNotes(ih) {
+	const allNotes = await db.notes.where('ih').equals(ih).toArray();
+	return allNotes;
+}
+
+
+async function removeNote(id) {
+	await db.notes.where({ id }).delete()
+}
+
+
 export const storage = {
 	addTorrent,
 	getTorrent,
@@ -105,4 +126,8 @@ export const storage = {
 	removeFilesAndTorrent,
 	getTorrents,
 	updateTorrent,
+	addNote,
+	getNote,
+	getAllNotes,
+	removeNote,
 }

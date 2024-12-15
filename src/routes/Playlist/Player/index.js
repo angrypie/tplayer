@@ -5,14 +5,15 @@ import { observer } from 'mobx-react-lite'
 import { BottomBar } from './BottomBar'
 
 export const Player = observer(({ audio, store }) => {
+	const playerStore = store.playerStore
 	useEffect(() => {
-		store.newAudio(audio)
-	}, [audio, store])
+		playerStore.newAudio(audio)
+	}, [audio, playerStore])
 
 	return (
 		<div className='player flex flex-column justify-around'>
-			<DurationProgressLine store={store} />
-			<PlayButtons store={store} />
+			<DurationProgressLine store={playerStore} />
+			<PlayButtons store={playerStore} />
 			<div className='side-margin h2 flex items-center m12'>
 				<BottomBar store={store} />
 			</div>

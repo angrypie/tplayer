@@ -7,7 +7,7 @@ import { useBookStores } from './store'
 function App({ params: { ih } }) {
 
 	const bookStores = useBookStores({ ih })
-	const store = bookStores.bookStore
+	const bookStore = bookStores.bookStore
 
 	return (
 		<div className='container'>
@@ -15,10 +15,10 @@ function App({ params: { ih } }) {
 				<Nav />
 			</div>
 			<div className='info'>
-				<TorrentInfo store={store} />
+				<TorrentInfo store={bookStore} />
 			</div>
 			<div className='player'>
-				<File playerStore={bookStores.playerStore} store={store} />
+				<File store={bookStore} />
 			</div>
 			<style jsx>{`
 				.container {

@@ -130,7 +130,7 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 	)
 }
 
-function timeFormat(time) {
+export function timeFormat(time) {
 	time = ~~time
 	// Hours, minutes and seconds
 	const hrs = ~~(time / 3600)
