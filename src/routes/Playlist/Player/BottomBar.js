@@ -11,9 +11,13 @@ const formatPath = (path) => {
 const NotesModal = ({ notes, onClose, store }) => {
 	const { setCurrentFile, torrentInfo } = store
 	const [localNotes, setLocalNotes] = useState(notes)
+	const [clickedNoteId, setClickedNoteId] = useState(null)
 	if (!localNotes?.length) return null
 
 	const seekToNote = note => {
+		setClickedNoteId(note.id)
+		setTimeout(() => setClickedNoteId(null), 2000)
+		
 		const pathStr = note.path
 		//search file in torrent info
 		const file = torrentInfo.files.find(({ path: p }) => pathStr === p.join('/'))
@@ -31,23 +35,23 @@ const NotesModal = ({ notes, onClose, store }) => {
 	}
 
 	return (
-		<div className="modal-overlay">
-			<div className="modal-content">
+		<div className="modal-overlay" onClick={onClose}>
+			<div className="modal-content" onClick={e => e.stopPropagation()}>
 				<div className="modal-header">
 					<h3>Notes</h3>
 					<button onClick={onClose}>×</button>
 				</div>
 				<div className="notes-list">
 					{localNotes.map(note => (
-						<div key={note.id} className="note-item bg-white pointer" onClick={() => seekToNote(note)}>
+						<div key={note.id} className="note-item bg-white pointer dim" onClick={() => seekToNote(note)}>
 							<div className="note-meta" >
-								<div className="note-time mb3">{timeFormat(note.time)}</div>
+								<div className={`note-time mb3 ${clickedNoteId === note.id ? 'highlight-time' : ''}`}>{timeFormat(note.time)}</div>
 								<div className="note-path">
 									{formatPath(note.path)}
 								</div>
 							</div>
 							<div className="note-text">{note.note}</div>
-							<button 
+							<button
 								onClick={(e) => removeNote(e, note)}
 								className="remove-btn"
 							>
@@ -84,7 +88,8 @@ const NotesModal = ({ notes, onClose, store }) => {
 					display: flex;
 					justify-content: space-between;
 					align-items: center;
-					padding: 1rem;
+					padding-left: 1rem;
+					padding-right: 1rem;
 					border-bottom: 1px solid #eee;
 				}
 				.modal-header button {
@@ -113,6 +118,11 @@ const NotesModal = ({ notes, onClose, store }) => {
 				}
 				.note-time {
 					color: #666;
+					transition: color 0.3s ease;
+				}
+				.note-time.highlight-time {
+					color: #0066cc;
+					font-weight: bold;
 				}
 				.note-path {
 					color: #888;

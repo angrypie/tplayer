@@ -12,6 +12,18 @@ export const LayoutRoute = ({ ...rest }) => (
 				html, body {
 					font-family: system-ui;
 				}
+				.gap {
+					gap: 0.5rem;
+				}
+				.gap-1 {
+					gap: 1rem;
+				}
+				.gap-2 {
+					gap: 2rem;
+				}
+				.gap-3 {
+					gap: 3rem;
+				}
 			`}</style>
 	</div>
 )

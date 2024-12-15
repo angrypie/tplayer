@@ -23,15 +23,19 @@ export const Library = observer(({ store }) => {
 	const [rest, history] = partition(books, ({ state }) => state !== undefined && state.updatedAt !== undefined)
 	const sorted = history.sort(compareUpdatedAt)
 
-	const recent = sorted.slice(0, 1).map(renderBook)
+	const recent = sorted.slice(0, 3).map(renderBook)
 	const library = sorted.slice(1).concat(rest).map(renderBook)
 
 	return (
 		<div className='flex flex-column mh3'>
-			<div className='f3 b'>Recent</div>
-			{recent.length > 0 ? recent : <div className='mv3 gray'>No recent books</div>}
+			{recent.length > 0 && (
+				<>
+					<div className='f3 b'>Recent</div>
+					{recent}
+				</>
+			)}
 			<div className='f3 b'>Library</div>
-			{library.length > 0 ? library : <div className='mv3 gray'>No books in library</div>}
+			{library.length > 0 ? library : <div className='mv3 gray'>{recent.length > 0 ? 'No more books in library' : 'No books in library'}</div>}
 		</div>
 	)
 })
@@ -66,11 +70,12 @@ export const AvailableBooks = () => {
 		}
 	}
 
+
 	return (
 		<div className="available-books">
 			{!isVisible ? (
 				<button
-					className="load-button"
+					className="load-button dim f6 underline"
 					onClick={fetchBooks}
 					disabled={isLoading}
 				>
@@ -80,19 +85,26 @@ export const AvailableBooks = () => {
 					<>
 						<h2>Available Books</h2>
 						<div className="books-grid">
-							{books.map(book => (
-								<Link
-									key={book.infoHash}
-									href={`/playlist/${book.infoHash}`}
-								>
-									<a className="book-item">
-										<div className="book-title">{book.name}</div>
-										<div className="book-meta">
-											<span>Last played: {book.lastUsed.toLocaleDateString()}</span>
-										</div>
-									</a>
-								</Link>
-							))}
+							{
+								books.length === 0 ? (
+									<div className='mv3 gray'>No books available on server</div>
+								) : (
+										books.map(book => (
+											<Link
+												key={book.infoHash}
+												href={`/playlist/${book.infoHash}`}
+											>
+												<div className="book-item">
+													<div className="book-title">{book.name}</div>
+													<div className="book-meta">
+														<span>Last played: {book.lastUsed.toLocaleDateString()}</span>
+													</div>
+												</div>
+											</Link>
+										))
+									)
+							}
+
 						</div>
 					</>
 				)}
@@ -103,18 +115,18 @@ export const AvailableBooks = () => {
                 .load-button {
                     background: var(--bg-elevated);
                     border: none;
-                    padding: 0.75rem 1.5rem;
+										margin-top: 8px;
                     border-radius: 8px;
                     color: inherit;
                     cursor: pointer;
-                    font-size: 1rem;
+										opacity: 0.3;
+										padding: 0.5rem;
                     transition: transform 0.2s;
                 }
-                .load-button:hover:not(:disabled) {
-                    transform: translateY(-2px);
-                }
+								.load-button:hover {
+									opacity: 1;
+								}
                 .load-button:disabled {
-                    opacity: 0.7;
                     cursor: not-allowed;
                 }
                 .books-grid {
