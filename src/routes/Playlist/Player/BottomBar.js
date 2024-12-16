@@ -186,23 +186,61 @@ export const BottomBar = observer(({ store }) => {
 		<>
 			<div
 				onClick={nextRate}
-				className='b h2 w3 flex justify-center items-center pointer'
+				className='b h2 w3 flex justify-center items-center pointer bottom-button'
 			>
 				{`x${rate}`}
 			</div>
 			<div
 				onClick={addNote}
-				className='b h2 ph3 flex justify-center items-center pointer'
+				className='b h2 ph3 flex justify-center items-center pointer bottom-button'
 			>
 				Add Note
 			</div>
 			<div
 				onClick={showNotes}
-				className='b h2 ph3 flex justify-center items-center pointer'
+				className='b h2 ph3 flex justify-center items-center pointer bottom-button'
 			>
 				Show Notes
 			</div>
+			<div
+				onClick={() => {
+					navigator.clipboard.writeText(store.ih);
+					// Optional: Show a brief tooltip or notification
+					const el = document.createElement('div');
+					el.className = 'copy-notification';
+					el.textContent = 'Copied!';
+					document.body.appendChild(el);
+					setTimeout(() => el.remove(), 1000);
+				}}
+				className='b h2 w2 flex justify-center items-center pointer bottom-button'
+				title="Copy infohash"
+			>
+				[ih]
+			</div>
 			{notes && <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} />}
+			<style jsx>{`
+				.copy-notification {
+					position: fixed;
+					bottom: 60px;
+					right: 20px;
+					background: rgba(0, 0, 0, 0.8);
+					color: white;
+					padding: 8px 16px;
+					border-radius: 4px;
+					animation: fade-out 1s ease;
+				}
+				.bottom-button {
+					opacity: 0.6;
+					transition: opacity 0.2s ease;
+				}
+				.bottom-button:hover {
+					opacity: 1;
+				}
+				@keyframes fade-out {
+					from { opacity: 1; }
+					to { opacity: 0; }
+				}
+			`}</style>
 		</>
 	)
 })

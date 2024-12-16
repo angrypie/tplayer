@@ -78,7 +78,7 @@ const PlayList = observer(({ store }) => {
 				className={`${position} ${appearance} ${getColor(path)}`}
 			>
 				<div>{path.join('/')}</div>
-				<div className='b'>{getLabel(file)}</div>
+				<div className={`b ${file.cached ? 'loaded' : ''}`}>{getLabel(file)}</div>
 
 				<style jsx>{`
 					.file {
@@ -88,6 +88,14 @@ const PlayList = observer(({ store }) => {
 
 					.active {
 						background-color: #2f37ff;
+					}
+
+					.loaded {
+						color: #5a3fd6;
+					}
+
+					.active .loaded {
+						color: inherit;
 					}
 				`}</style>
 			</div>

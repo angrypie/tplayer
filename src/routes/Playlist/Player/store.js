@@ -30,6 +30,8 @@ export const usePlayerStore = () => {
 			}
 			store.setAudio(audio)
 			store.player.addUrl(audio)
+			console.log('playerStore: audio added, attempting to play')
+			store.play()
 			return true
 		},
 
