@@ -5,7 +5,7 @@ import Home from './Home'
 import Playlist from './Playlist'
 
 export const LayoutRoute = ({ ...rest }) => (
-	<div className='container center mw6'>
+	<div className='container mx-auto max-w-xl'>
 		<Route path={'/'} exact component={Home} />
 		<Route path={'/playlist/:ih'} exact component={Playlist} />
 		<style>{`

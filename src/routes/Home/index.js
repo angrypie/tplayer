@@ -9,9 +9,9 @@ const Home = () => {
 		store.updateLibraryItems()
 	}, [store])
 	return (
-		<div className='pv2'>
+		<div className='py-2'>
 			<Search />
-			<div className='flex flex-column mt4'>
+			<div className='flex flex-col mt-4'>
 				<Library store={store} />
 				<AvailableBooks />
 			</div>

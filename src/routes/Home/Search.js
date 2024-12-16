@@ -28,15 +28,14 @@ export const Search = () => {
 		}
 	}
 
+	// <div onClick={handlePaste} className='f6 link dim ba ph3 pv2 dib black pointer'>
+	// 	<span className='black'>paste</span>
+	// </div>
 	return (
-		<div className='flex gap mh3'>
-			<input type='text' ref={searchRef} className='flex-auto' placeholder='paste magnet link or info hash' />
-			<Button variant="outline" onClick={handlePaste}>
-				paste
-			</Button>
-			<Button onClick={() => searchBook()}>
-				search
-			</Button>
+		<div className='flex items-center gap-1 mx-3'>
+			<input type='text' ref={searchRef} className='flex-1 px-3 py-2 rounded-md border' placeholder='paste magnet link or info hash' />
+			<Button variant='outline' onClick={() => handlePaste()}>paste</Button>
+			<Button onClick={() => searchBook()}>search</Button>
 		</div>
 	)
 }

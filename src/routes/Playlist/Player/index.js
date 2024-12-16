@@ -11,22 +11,12 @@ export const Player = observer(({ audio, store }) => {
 	}, [audio, playerStore])
 
 	return (
-		<div className='player flex flex-column justify-around'>
+		<div className='h-full flex flex-col justify-around'>
 			<DurationProgressLine store={playerStore} />
 			<PlayButtons store={playerStore} />
-			<div className='side-margin h2 flex items-center m12'>
+			<div className='mx-4 h-8 flex items-center'>
 				<BottomBar store={store} />
 			</div>
-			<style jsx>{`
-				.player {
-					height: 100%;
-				}
-
-				.side-margin {
-					margin-left: 15px;
-					margin-right: 15px;
-				}
-			`}</style>
 		</div>
 	)
 })

@@ -18,7 +18,7 @@ export const DurationProgressLine = observer(({ store }) => {
 		return () => clearInterval(interval)
 	}, [audio, store])
 	return (
-		<div style={{ margin: '0 15px' }}>
+		<div className='mx-4'>
 			<ProgressLine
 				progress={progress}
 				duration={duration}
@@ -38,7 +38,7 @@ export const VolumeProgressLine = observer(({ store }) => {
 	}
 
 	return (
-		<div style={{ margin: '0 30px' }}>
+		<div className='mx-8'>
 			<ProgressLine
 				progress={volume}
 				duration={maxVolume}
@@ -89,43 +89,25 @@ const ProgressLine = ({ duration, progress, setProgress, displayMeasures }) => {
 
 	return (
 		<div
-			className='container h2 w-100 flex flex-column justify-center pointer'
+			className='h-8 w-full flex flex-col justify-center cursor-pointer'
 			ref={progressRef}
 			onTouchMove={touchMove}
 			onTouchEnd={releaseControll}
 			onClick={clickSetPosition}
 		>
-			<div className='flex items-center h1'>
-				<div style={{ width: `${p}%` }} className='progress'></div>
-				<div style={{ width: `${d}%` }} className='duration'></div>
+			<div className='flex items-center h-4'>
+				<div style={{ width: `${p}%` }} className='bg-black h-[6px]'></div>
+				<div style={{ width: `${d}%` }} className='bg-black h-[1px]'></div>
 			</div>
 
 			{
 				typeof displayMeasures !== 'function' ? null : (
 					<div className='flex justify-between'>
-						<div className='measure'>{displayMeasures(position)}</div>
-						<div className='measure'>-{displayMeasures(duration - position)}</div>
+						<div className='text-[13px] opacity-50 font-medium'>{displayMeasures(position)}</div>
+						<div className='text-[13px] opacity-50 font-medium'>-{displayMeasures(duration - position)}</div>
 					</div>
 				)
 			}
-
-			<style jsx>{`
-				.progress {
-					background: black;
-					height: 6px;
-				}
-
-				.duration {
-					background: black;
-					height: 1px;
-				}
-
-				.measure {
-					font-size: 13px;
-					opacity: 0.5;
-					font-weight: 500;
-				}
-			`}</style>
 		</div >
 	)
 }

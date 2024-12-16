@@ -6,7 +6,6 @@ import { comparePath } from '~/utils'
 
 export const TorrentInfo = observer(({ store }) => {
 	const { ih, torrentInfo, setTorrentInfo } = store
-
 	const listEl = useRef(null)
 
 	useEffect(() => {
@@ -17,51 +16,28 @@ export const TorrentInfo = observer(({ store }) => {
 	}, [ih, setTorrentInfo])
 
 	return (
-		<div className='container'>
-			<div className='header'>
-				<div className='f2 b lh-title'>Book</div>
-				<div className='f3 b o-50 lh-copy truncate'>{torrentInfo.name}</div>
+		<div className='flex flex-col h-full'>
+			<div className='h-[100px] mx-4'>
+				<div className='text-4xl font-bold leading-tight'>Book</div>
+				<div className='text-2xl font-bold opacity-50 leading-normal truncate'>{torrentInfo.name}</div>
 			</div>
-			<div className='file-list-container' ref={listEl}>
-				<div className='file-list'>
+			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y' ref={listEl}>
+				<div>
 					<PlayList store={store} />
 				</div>
 				<CleanBookDataButtons store={store} />
 			</div>
-			<style jsx>{`
-				.container {
-					display: flex;
-					flex-direction: column;
-					max-height: 100%;
-				}
-
-				.header {
-					height: 100px;
-					margin: 0 15px;
-				}
-
-				.file-list-container {
-					flex: 0 1 auto;
-					overflow: scroll;
-					margin-top: 10px;
-					-webkit-overflow-scrolling: touch;
-				}
-
-				.file-list {
-				}
-			`}</style>
 		</div>
 	)
 })
 
 const PlayList = observer(({ store }) => {
 	const { currentFile, torrentInfo, setCurrentFile } = store
-	const position = 'file flex justify-between items-center '
-	const appearance = 'pointer bg-animate-ns'
+
 	const getColor = path =>
 		comparePath(currentFile.path, path)
-			? 'active white'
-			: 'hover-bg-near-white-ns bg-white'
+			? 'bg-[#2f37ff] text-white'
+			: 'hover:bg-gray-50 bg-white'
 
 	const getLabel = ({ cached, length, state }) => {
 		let label = cached ? 'loaded' : formatBytes(length)
@@ -75,29 +51,12 @@ const PlayList = observer(({ store }) => {
 			<div
 				key={i}
 				onClick={() => setCurrentFile(file)}
-				className={`${position} ${appearance} ${getColor(path)}`}
+				className={`h-10 px-4 flex justify-between items-center cursor-pointer ${getColor(path)}`}
 			>
 				<div>{path.join('/')}</div>
-				<div className={`b ${file.cached ? 'loaded' : ''}`}>{getLabel(file)}</div>
-
-				<style jsx>{`
-					.file {
-						height: 2.5rem;
-						padding: 0 15px;
-					}
-
-					.active {
-						background-color: #2f37ff;
-					}
-
-					.loaded {
-						color: #5a3fd6;
-					}
-
-					.active .loaded {
-						color: inherit;
-					}
-				`}</style>
+				<div className={`font-bold ${file.cached ? 'text-[#5a3fd6] [.bg-\\[\\#2f37ff\\]_&]:text-white' : ''}`}>
+					{getLabel(file)}
+				</div>
 			</div>
 		)
 	})
@@ -115,33 +74,19 @@ const CleanBookDataButtons = observer(({ store }) => {
 			? cleanBookData(ih)
 			: null
 
-
 	const remove = () =>
 		window.confirm('Are you sure to remove this book from library?')
 			? removeBook(ih).then((ok) => ok && window.history.pushState(null, null, '/'))
 			: null
 
-
 	return (
-		<div className='flex-row'>
-			<div onClick={clean} className='button flex justify-center pv2 pointer'>
+		<div className='flex flex-col'>
+			<div onClick={clean} className='flex justify-center py-2 cursor-pointer text-[#2f37ff] font-medium text-sm opacity-50 active:opacity-100'>
 				Clean book data ({formatBytes(cachedPartsLength)})
 			</div>
-			<div onClick={remove} className='button flex justify-center pv2 pointer'>
+			<div onClick={remove} className='flex justify-center py-2 cursor-pointer text-[#2f37ff] font-medium text-sm opacity-50 active:opacity-100'>
 				Remove Book from Library
 			</div>
-			<style jsx>{`
-				.button {
-					color: #2f37ff;
-					font-weight: 500;
-					font-size: 14px;
-					opacity: 0.5;
-				}
-
-				.button:active {
-					opacity: 1;
-				}
-			`}</style>
 		</div>
 	)
 })

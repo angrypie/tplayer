@@ -1,16 +1,23 @@
-import React from 'react'
-import ReactDOM from 'react-dom'
-import * as serviceWorker from './serviceWorker'
-import './globals.css'
-
-import 'tachyons'
-
+import React from 'react';
+import ReactDOM from 'react-dom/client';
 import App from './containers/App'
 import Routes from './routes'
+import './globals.css'
+// import 'tachyons'
+
+import * as serviceWorker from './serviceWorker'
+
+
 
 const routes = Routes()
 
-ReactDOM.render(<App routes={routes} />, document.getElementById('root'))
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+	// <React.StrictMode>
+	<App routes={routes} />
+	// </React.StrictMode>
+);
 
 // If you want your app to work offline and load faster, you can change
 // unregister() to register() below. Note this comes with some pitfalls.
