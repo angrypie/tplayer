@@ -203,31 +203,42 @@ export const BottomBar = observer(({ store }) => {
 				Show Notes
 			</div>
 			<div
-				onClick={() => {
+				onClick={(e) => {
 					navigator.clipboard.writeText(store.ih);
-					// Optional: Show a brief tooltip or notification
-					const el = document.createElement('div');
-					el.className = 'copy-notification';
-					el.textContent = 'Copied!';
-					document.body.appendChild(el);
-					setTimeout(() => el.remove(), 1000);
+					const button = e.currentTarget;
+					button.classList.add('show-popover');
+					setTimeout(() => button.classList.remove('show-popover'), 1000);
 				}}
-				className='b h2 w2 flex justify-center items-center pointer bottom-button'
+				className='b h2 w2 flex justify-center items-center pointer bottom-button copy-button'
 				title="Copy infohash"
+				data-popover="Copied infohash"
 			>
 				[ih]
 			</div>
 			{notes && <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} />}
 			<style jsx>{`
-				.copy-notification {
-					position: fixed;
-					bottom: 60px;
-					right: 20px;
+				.copy-button {
+					position: relative;
+				}
+				.copy-button::after {
+					content: attr(data-popover);
+					position: absolute;
+					bottom: 100%;
+					left: 50%;
+					transform: translateX(-50%);
 					background: rgba(0, 0, 0, 0.8);
 					color: white;
-					padding: 8px 16px;
+					padding: 4px 8px;
 					border-radius: 4px;
-					animation: fade-out 1s ease;
+					font-size: 13px;
+					white-space: nowrap;
+					opacity: 0;
+					visibility: hidden;
+					transition: all 0.2s ease;
+				}
+				.copy-button.show-popover::after {
+					opacity: 1;
+					visibility: visible;
 				}
 				.bottom-button {
 					opacity: 0.6;
@@ -235,10 +246,6 @@ export const BottomBar = observer(({ store }) => {
 				}
 				.bottom-button:hover {
 					opacity: 1;
-				}
-				@keyframes fade-out {
-					from { opacity: 1; }
-					to { opacity: 0; }
 				}
 			`}</style>
 		</>
