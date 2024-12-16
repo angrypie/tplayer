@@ -11,6 +11,9 @@ export const LayoutRoute = ({ ...rest }) => (
 		<style>{`
 				html, body {
 					font-family: system-ui;
+					overflow: hidden;
+					height: 100%;
+					overscroll-behavior: none;
 				}
 				.gap {
 					gap: 0.5rem;
