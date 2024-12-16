@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { useLocation } from 'wouter'
 import { Button } from '~/components/ui/button'
+import { ClipboardPaste } from 'lucide-react'
 
 export const Search = () => {
 	const searchRef = useRef(null)
@@ -32,10 +33,15 @@ export const Search = () => {
 	// 	<span className='black'>paste</span>
 	// </div>
 	return (
-		<div className='flex items-center gap-1 mx-3'>
-			<input type='text' ref={searchRef} className='flex-1 px-3 py-2 rounded-md border' placeholder='paste magnet link or info hash' />
-			<Button variant='outline' onClick={() => handlePaste()}>paste</Button>
-			<Button onClick={() => searchBook()}>search</Button>
+		<div className='flex items-center gap-0.5 mx-3 h-12'>
+			<input 
+				type='text' 
+				ref={searchRef} 
+				className='flex-1 px-3 py-2 rounded-md border h-10 min-w-0' 
+				placeholder='magnet link or info hash' 
+			/>
+			<Button className='h-10 whitespace-nowrap' variant='outline' onClick={() => handlePaste()}><ClipboardPaste className="h-4 w-4" /></Button>
+			<Button className='h-10 whitespace-nowrap' onClick={() => searchBook()}>search</Button>
 		</div>
 	)
 }

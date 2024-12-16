@@ -54,7 +54,7 @@ const PlayList = observer(({ store }) => {
 				className={`h-10 px-4 flex justify-between items-center cursor-pointer ${getColor(path)}`}
 			>
 				<div>{path.join('/')}</div>
-				<div className={`font-bold ${file.cached ? 'text-[#5a3fd6] [.bg-\\[\\#2f37ff\\]_&]:text-white' : ''}`}>
+				<div className={`font-bold ${comparePath(currentFile.path, path) ? 'text-white' : file.cached ? 'text-[#5a3fd6]' : ''}`}>
 					{getLabel(file)}
 				</div>
 			</div>
