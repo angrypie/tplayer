@@ -97,7 +97,8 @@ func main() {
 		}
 		defer rows.Close()
 
-		var torrents []Torrent
+		// var torrents []Torrent
+		torrents := make([]Torrent, 0)
 		for rows.Next() {
 			var t Torrent
 			var fullName string

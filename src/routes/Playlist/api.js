@@ -59,6 +59,11 @@ export async function getAvailableTorrents() {
 			throw new Error(`HTTP error! status: ${response.status}`);
 		}
 		const torrents = await response.json();
+		//check if torrents is an array
+		if (!Array.isArray(torrents)) {
+			console.error('torrents is not an array');
+			return [];
+		}
 		return torrents.map(torrent => ({
 			name: torrent.name,
 			infoHash: torrent.info_hash,
