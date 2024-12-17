@@ -15,13 +15,14 @@ import (
 )
 
 var (
-	//go:embed all:build
+	//go:embed all:dist
 	dist embed.FS
-	//go:embed build/index.html
+	//go:embed dist/index.html
 	indexHtml embed.FS
 
-	distIndexHtml = echo.MustSubFS(indexHtml, "build")
-	distStaticFS  = echo.MustSubFS(dist, "build/static")
+	distIndexHtml = echo.MustSubFS(indexHtml, "dist")
+	distStaticFS  = echo.MustSubFS(dist, "dist/assets")
+	rootStaticFS  = echo.MustSubFS(dist, "dist")
 )
 
 const sqliteDB = "tplayer.sqlite"
@@ -62,7 +63,8 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
 
-	e.StaticFS("/static", distStaticFS)
+	e.StaticFS("/assets", distStaticFS)
+	e.StaticFS("/", rootStaticFS)
 	e.FileFS("/", "index.html", distIndexHtml)
 	e.FileFS("/playlist/*", "index.html", distIndexHtml)
 	//TODO setup proper redirect for spa (for now it's only one page so it's ok)

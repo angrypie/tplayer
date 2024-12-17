@@ -10,6 +10,6 @@ go install github.com/anacrolix/confluence@latest
 
 Build
 ```
-export NODE_OPTIONS=--openssl-legacy-provider
+make prod
 ```
 

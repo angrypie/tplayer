@@ -8,26 +8,6 @@ export const LayoutRoute = ({ ...rest }) => (
 	<div className='container mx-auto max-w-xl'>
 		<Route path={'/'} exact component={Home} />
 		<Route path={'/playlist/:ih'} exact component={Playlist} />
-		<style>{`
-				html, body {
-					font-family: system-ui;
-					overflow: hidden;
-					height: 100%;
-					overscroll-behavior: none;
-				}
-				.gap {
-					gap: 0.5rem;
-				}
-				.gap-1 {
-					gap: 1rem;
-				}
-				.gap-2 {
-					gap: 2rem;
-				}
-				.gap-3 {
-					gap: 3rem;
-				}
-			`}</style>
 	</div>
 )
 

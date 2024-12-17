@@ -7,6 +7,7 @@ export const defaultPlayerState = {
 	volume: 0.7,
 	rate: 1,
 	audio: null,
+	playing: false,
 	playerRef: {},
 	player: new Player(),
 }
@@ -28,10 +29,12 @@ export const usePlayerStore = () => {
 			if (!audio) {
 				return false
 			}
+			const wasPlaying = store.playing
 			store.setAudio(audio)
 			store.player.addUrl(audio)
-			console.log('playerStore: audio added, attempting to play')
-			store.play()
+			if (wasPlaying) {
+				store.play()
+			}
 			return true
 		},
 

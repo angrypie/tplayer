@@ -1,18 +1,13 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect } from 'react'
 import { formatBytes } from './utils'
 import { observer } from 'mobx-react-lite'
-import { disableBodyScroll, enableBodyScroll } from 'body-scroll-lock'
 import { comparePath } from '~/utils'
 
 export const TorrentInfo = observer(({ store }) => {
 	const { ih, torrentInfo, setTorrentInfo } = store
-	const listEl = useRef(null)
 
 	useEffect(() => {
-		const current = listEl.current
-		disableBodyScroll(current)
 		setTorrentInfo(ih)
-		return () => enableBodyScroll(current)
 	}, [ih, setTorrentInfo])
 
 	return (
@@ -21,7 +16,7 @@ export const TorrentInfo = observer(({ store }) => {
 				<div className='text-4xl font-bold leading-tight'>Book</div>
 				<div className='text-2xl font-bold opacity-50 leading-normal truncate'>{torrentInfo.name}</div>
 			</div>
-			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y' ref={listEl}>
+			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y'>
 				<div>
 					<PlayList store={store} />
 				</div>

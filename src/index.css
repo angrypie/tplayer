@@ -57,3 +57,10 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+html, body {
+	font-family: system-ui;
+	overflow: hidden;
+	height: 100%;
+	overscroll-behavior: none;
+}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Player } from './Player'
 import { observer } from 'mobx-react-lite'
+import { cn } from '~/lib/utils'
 
 const PRELOAD_STATUS = {
     PREPARING: 'Preparing to preload...',
@@ -69,72 +70,25 @@ const PreloadNotification = observer(({ nextFile, getAudio, onComplete }) => {
     if (!isVisible) return null
 
     return (
-        <div className="preload-notification">
-            <div className="content">
-                <div className="file-name">{nextFile.path.join('/')}</div>
-                <div className="status">
+        <div className="fixed bottom-5 right-5 bg-black/80 text-white px-5 py-2.5 rounded-lg flex gap-4 items-center min-w-[250px] animate-slide-up">
+            <div className="flex-1">
+                <div className="font-medium mb-1 truncate">
+                    {nextFile.path.join('/')}
+                </div>
+                <div className="text-sm opacity-80">
                     {status}
                     {status === PRELOAD_STATUS.PREPARING && ` (${timeLeft}s)`}
                 </div>
             </div>
             <button 
                 onClick={handleCancel}
-                className={status !== PRELOAD_STATUS.PREPARING ? 'hidden' : ''}
+                className={cn(
+                    "bg-[#2f37ff] text-white px-2.5 py-1.5 rounded whitespace-nowrap transition-all hover:bg-[#1f25cc]",
+                    status !== PRELOAD_STATUS.PREPARING && "opacity-0 invisible pointer-events-none"
+                )}
             >
                 Cancel
             </button>
-            <style jsx>{`
-                .preload-notification {
-                    position: fixed;
-                    bottom: 20px;
-                    right: 20px;
-                    background: rgba(0, 0, 0, 0.8);
-                    color: white;
-                    padding: 10px 20px;
-                    border-radius: 8px;
-                    display: flex;
-                    gap: 15px;
-                    align-items: center;
-                    animation: slide-up 0.3s ease;
-                    min-width: 250px;
-                }
-                .content {
-                    flex: 1;
-                }
-                .file-name {
-                    font-weight: 500;
-                    margin-bottom: 4px;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
-                .status {
-                    font-size: 0.9em;
-                    opacity: 0.8;
-                }
-                button {
-                    background: #2f37ff;
-                    border: none;
-                    color: white;
-                    padding: 5px 10px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    white-space: nowrap;
-                    transition: opacity 0.2s ease, visibility 0.2s ease;
-                }
-                button.hidden {
-                    opacity: 0;
-                    visibility: hidden;
-                    pointer-events: none;
-                }
-                button:hover {
-                    background: #1f25cc;
-                }
-                @keyframes slide-up {
-                    from { transform: translateY(100px); opacity: 0; }
-                    to { transform: translateY(0); opacity: 1; }
-                }
-            `}</style>
         </div>
     )
 })

@@ -1,51 +1,49 @@
 {
-	"name": "react-mobx-starter",
-	"version": "0.1.0",
-	"proxy": "http://127.0.0.1:8080",
-	"private": true,
-	"dependencies": {
-		"@craco/craco": "^7.1.0",
-		"@radix-ui/react-slot": "^1.1.1",
-		"bencode": "^4.0.0",
-		"body-scroll-lock": "^3.1.5",
-		"class-variance-authority": "^0.7.1",
-		"clsx": "^2.1.1",
-		"dexie": "^3.0.2",
-		"howler": "^2.2.4",
-		"lucide-react": "^0.468.0",
-		"mobx": "^6.13.5",
-		"mobx-react-lite": "^4.1.0",
-		"natsort": "^2.0.2",
-		"react": "^19.0.0",
-		"react-dom": "^19.0.0",
-		"react-scripts": "^5.0.1",
-		"styled-jsx": "^5.1.6",
-		"tailwind-merge": "^2.5.5",
-		"tailwindcss-animate": "^1.0.7",
-		"wouter": "^2.5.1"
-	},
-	"scripts": {
-		"start": "craco start",
-		"build": "craco build && rimraf ./build/static/**/*.map",
-		"test": "craco test",
-		"eject": "react-scripts eject",
-		"format": "prettier --write \"src/**/*.{js,jsx,css}\""
-	},
-	"eslintConfig": {
-		"extends": "react-app"
-	},
-	"browserslist": [
-		">0.2%",
-		"not dead",
-		"not ie <= 11",
-		"not op_mini all"
-	],
-	"devDependencies": {
-		"@babel/core": "^7.26.0",
-		"@babel/plugin-proposal-object-rest-spread": "^7.20.7",
-		"babel-plugin-root-import": "^6.5.0",
-		"prettier": "^2.1.2",
-		"rimraf": "^3.0.2",
-		"tailwindcss": "^3.4.16"
-	}
+  "name": "tplayer-next",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "generate-pwa-assets": "pwa-assets-generator --preset minimal-2023 public/logo.svg"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.1.1",
+    "bencode": "^4.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dexie": "^4.0.10",
+    "howler": "^2.2.4",
+    "lucide-react": "^0.468.0",
+    "mobx": "^6.13.5",
+    "mobx-react-lite": "^4.1.0",
+    "natsort": "^2.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
+    "wouter": "^3.3.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vite-pwa/assets-generator": "^0.2.6",
+    "@vitejs/plugin-react-swc": "^3.5.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.15.0",
+    "vite": "^6.0.1",
+    "vite-plugin-pwa": "^0.21.1"
+  }
 }

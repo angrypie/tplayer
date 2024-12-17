@@ -5,38 +5,20 @@ import { Nav } from './Nav'
 import { useBookStores } from './store'
 
 function App({ params: { ih } }) {
-
 	const bookStores = useBookStores({ ih })
 	const bookStore = bookStores.bookStore
 
 	return (
-		<div className='container'>
-			<div className='nav'>
+		<div style={{ height: `${window.innerHeight}px` }} className="w-full">
+			<div className="h-10">
 				<Nav />
 			</div>
-			<div className='info'>
+			<div style={{ height: `calc(${window.innerHeight}px - 10rem - 2.5rem)` }}>
 				<TorrentInfo store={bookStore} />
 			</div>
-			<div className='player'>
+			<div className="h-40">
 				<File store={bookStore} />
 			</div>
-			<style jsx>{`
-				.container {
-					height: ${window.innerHeight}px;
-				}
-
-				.nav {
-					height: 40px;
-				}
-
-				.info {
-					height: calc(${window.innerHeight}px - 40px - 150px);
-				}
-
-				.player {
-					height: 150px;
-				}
-			`}</style>
 		</div>
 	)
 }
