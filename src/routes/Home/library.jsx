@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { Link } from 'wouter'
 import { getAvailableTorrents } from '~/routes/Playlist/api'
 
+const recentBooksNumber = 2
 export const Library = observer(({ store }) => {
 	const renderBook = ({ info, ih, state }, i) => {
 		const name = info['name.utf-8'] || info['name']
@@ -24,8 +25,8 @@ export const Library = observer(({ store }) => {
 	const [rest, history] = partition(books, ({ state }) => state !== undefined && state.updatedAt !== undefined)
 	const sorted = history.sort(compareUpdatedAt)
 
-	const recent = sorted.slice(0, 3).map(renderBook)
-	const library = sorted.slice(1).concat(rest).map(renderBook)
+	const recent = sorted.slice(0, recentBooksNumber).map(renderBook)
+	const library = sorted.slice(recentBooksNumber).concat(rest).map(renderBook)
 
 	return (
 		<div className='flex flex-col mx-3'>

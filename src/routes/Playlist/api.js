@@ -6,10 +6,10 @@ export async function getTorrentInfo(ih) {
 	if (torrent !== null) {
 		return await transformTorrentInfo(ih, torrent.info, torrent.state)
 	}
-	const url = `/info?ih=${ih}`
+	const url = `/api/info?ih=${ih}`
 	const res = await fetch(url, { mode: 'cors' })
 	const body = await res.arrayBuffer()
-	const info = bencode.decode(body, 'utf8')
+	const info = bencode.decode(body, 'utf-8')
 	storage.addTorrent(ih, info)
 	return await transformTorrentInfo(ih, info)
 }
@@ -22,7 +22,7 @@ export async function getAudio(ih, pathArr) {
 			const audioUrl = URL.createObjectURL(file.file)
 			return audioUrl
 		}
-		const url = `/data?ih=${ih}&path=${path}`
+		const url = `/api/data?ih=${ih}&path=${path}`
 		const res = await fetch(url, { mode: 'cors' })
 		if (!res.ok) {
 			throw new Error(res.statusText)
@@ -53,22 +53,22 @@ async function transformTorrentInfo(ih, torrent, state) {
 }
 
 export async function getAvailableTorrents() {
-    try {
-        const response = await fetch('/api/torrents', { mode: 'cors' });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const torrents = await response.json();
-        return torrents.map(torrent => ({
-            name: torrent.name,
+	try {
+		const response = await fetch('/api/torrents', { mode: 'cors' });
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`);
+		}
+		const torrents = await response.json();
+		return torrents.map(torrent => ({
+			name: torrent.name,
 			infoHash: torrent.info_hash,
-            storeTime: new Date(torrent.store_time),
-            lastUsed: new Date(torrent.last_used),
-            accessCount: torrent.access_count,
-            dataId: torrent.data_id
-        }));
-    } catch (error) {
-        console.error('Error fetching available torrents:', error);
-        return [];
-    }
+			storeTime: new Date(torrent.store_time),
+			lastUsed: new Date(torrent.last_used),
+			accessCount: torrent.access_count,
+			dataId: torrent.data_id
+		}));
+	} catch (error) {
+		console.error('Error fetching available torrents:', error);
+		return [];
+	}
 }

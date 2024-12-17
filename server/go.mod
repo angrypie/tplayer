@@ -3,7 +3,6 @@ module github.com/angrypie/tplayer
 go 1.21.4
 
 require (
-	github.com/jackpal/bencode-go v1.0.2
 	github.com/labstack/echo/v4 v4.11.4
 	modernc.org/sqlite v1.34.2
 )

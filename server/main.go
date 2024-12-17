@@ -134,7 +134,10 @@ func main() {
 	proxy := middleware.ProxyWithConfig(middleware.ProxyConfig{
 		Skipper: func(c echo.Context) bool {
 			path := c.Request().URL.Path
-			if path == "/info" || path == "/data" {
+			// Proxy requests that belong to confluence
+			if path == "/api/info" || path == "/api/data" {
+				// Remove /api prefix before proxying
+				c.Request().URL.Path = strings.TrimPrefix(path, "/api")
 				return false
 			}
 			return true
