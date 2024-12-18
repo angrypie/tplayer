@@ -67,10 +67,8 @@ export async function getAvailableTorrents() {
 		return torrents.map(torrent => ({
 			name: torrent.name,
 			infoHash: torrent.info_hash,
-			storeTime: new Date(torrent.store_time),
-			lastUsed: new Date(torrent.last_used),
-			accessCount: torrent.access_count,
-			dataId: torrent.data_id
+			lastSeen: new Date(torrent.last_seen),
+			firstSeen: new Date(torrent.first_seen),
 		}));
 	} catch (error) {
 		console.error('Error fetching available torrents:', error);

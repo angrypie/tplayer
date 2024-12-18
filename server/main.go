@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"embed"
+	"io"
+	"log"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"strconv"
@@ -25,11 +29,190 @@ var (
 	rootStaticFS  = echo.MustSubFS(dist, "dist")
 )
 
-const sqliteDB = "tplayer.sqlite"
+const (
+	sqliteDB  = "tplayer.sqlite"
+	historyDB = "tplayer_history.sqlite"
+)
 
-func extractTorrentName(data []byte) string {
+func main() {
+	e := setupEcho()
+	db := setupDatabase()
+	defer db.Close()
+
+	historyDb := setupHistoryDatabase()
+	defer historyDb.Close()
+
+	e.GET("/api/torrents", handleGetTorrents(historyDb))
+
+	//run ./confluence command shell command in separate process
+	cmd := exec.Command("go", "run", "github.com/anacrolix/confluence@latest", "-sqliteStorage="+sqliteDB)
+	if err := cmd.Start(); err != nil {
+		// fmt.Printf("Failed to start cmd: %v", err)
+		panic("Failed to start cmd " + err.Error())
+	}
+
+	e.Logger.Fatal(e.Start(":80"))
+}
+
+func setupHistoryDatabase() *sql.DB {
+	db, err := sql.Open("sqlite", historyDB)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create history table if not exists
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS torrent_history (
+			info_hash TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		panic("Failed to create history table: " + err.Error())
+	}
+
+	return db
+}
+
+func setupDatabase() *sql.DB {
+	db, err := sql.Open("sqlite", "file:"+sqliteDB+"?mode=ro")
+	if err != nil {
+		panic(err)
+	}
+	return db
+}
+
+type TorrentHistory struct {
+	InfoHash  string    `json:"info_hash"`
+	Name      string    `json:"name"`
+	LastSeen  time.Time `json:"last_seen"`
+	FirstSeen time.Time `json:"first_seen"`
+}
+
+func handleGetTorrents(db *sql.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		rows, err := db.Query(`
+			SELECT info_hash, name, last_seen, first_seen
+			FROM torrent_history
+			ORDER BY last_seen DESC
+		`)
+		if err != nil {
+			log.Printf("ERROR failed to query torrent history: %v", err)
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		defer rows.Close()
+
+		torrents := make([]TorrentHistory, 0)
+		for rows.Next() {
+			var t TorrentHistory
+			if err := rows.Scan(&t.InfoHash, &t.Name, &t.LastSeen, &t.FirstSeen); err != nil {
+				log.Printf("ERROR failed to scan torrent row: %v", err)
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			torrents = append(torrents, t)
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Printf("ERROR error after scanning rows: %v", err)
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(200, torrents)
+	}
+}
+
+func setupEcho() *echo.Echo {
+	e := echo.New()
+	e.Use(middleware.Recover())
+	e.Use(middleware.Logger())
+
+	e.StaticFS("/assets", distStaticFS)
+	e.StaticFS("/", rootStaticFS)
+	e.FileFS("/", "index.html", distIndexHtml)
+	e.FileFS("/playlist/*", "index.html", distIndexHtml)
+	//TODO setup proper redirect for spa (for now it's only one page so it's ok)
+
+	url1, err := url.Parse("http://localhost:8080")
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+	targets := []*middleware.ProxyTarget{
+		{
+			URL: url1,
+		},
+	}
+
+	historyDb := setupHistoryDatabase()
+
+	proxy := middleware.ProxyWithConfig(middleware.ProxyConfig{
+		Skipper: func(c echo.Context) bool {
+			path := c.Request().URL.Path
+			// Proxy requests that belong to confluence
+			if path == "/api/info" || path == "/api/data" {
+				// Remove /api prefix before proxying
+				c.Request().URL.Path = strings.TrimPrefix(path, "/api")
+				return false
+			}
+			return true
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			// Only process /info responses
+			log.Println("INFO extracting torrent info", resp.Request.URL.Path)
+			if !strings.HasSuffix(resp.Request.URL.Path, "/info") {
+				return nil
+			}
+
+			// Get info hash from request query parameter
+			infoHash := resp.Request.URL.Query().Get("ih")
+			if infoHash == "" {
+				log.Println("WARN no info hash in request")
+				return nil
+			}
+
+			// Read the response body
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+
+			// Close the original body
+			resp.Body.Close()
+			// Create a new body with the same content
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			// Extract torrent name
+			name := extractBencodeField(body, "name")
+			if name == "" {
+				log.Println("WARN no name in torrent data for hash:", infoHash)
+				return nil
+			}
+
+			log.Printf("INFO saving torrent: %s (%s)", name, infoHash)
+
+			// Update history table
+			_, err = historyDb.Exec(`
+				INSERT INTO torrent_history (info_hash, name, last_seen)
+				VALUES (?, ?, CURRENT_TIMESTAMP)
+				ON CONFLICT(info_hash) DO UPDATE SET
+					last_seen = CURRENT_TIMESTAMP
+			`, infoHash, name)
+			if err != nil {
+				log.Printf("ERROR failed to save torrent history: %v", err)
+				return err
+			}
+			return nil
+		},
+		Balancer: middleware.NewRandomBalancer(targets),
+	})
+	e.Use(proxy)
+
+	return e
+}
+
+func extractBencodeField(data []byte, fieldName string) string {
 	// Find ":name" pattern
-	idx := strings.Index(string(data), ":name")
+	idx := strings.Index(string(data), ":"+fieldName)
 	if idx == -1 {
 		return ""
 	}
@@ -56,103 +239,4 @@ func extractTorrentName(data []byte) string {
 		return ""
 	}
 	return string(data[nameStart : nameStart+length])
-}
-
-func main() {
-	e := echo.New()
-	e.Use(middleware.Recover())
-	e.Use(middleware.Logger())
-
-	e.StaticFS("/assets", distStaticFS)
-	e.StaticFS("/", rootStaticFS)
-	e.FileFS("/", "index.html", distIndexHtml)
-	e.FileFS("/playlist/*", "index.html", distIndexHtml)
-	//TODO setup proper redirect for spa (for now it's only one page so it's ok)
-
-	// Initialize SQLite database connection reoad mode
-	db, err := sql.Open("sqlite", "file:"+sqliteDB+"?mode=ro")
-	if err != nil {
-		e.Logger.Fatal(err)
-	}
-	defer db.Close()
-
-	// Add /api/torrents endpoint
-	e.GET("/api/torrents", func(c echo.Context) error {
-		type Torrent struct {
-			InfoHash    string    `json:"info_hash"`
-			Name        string    `json:"name"`
-			StoreTime   time.Time `json:"store_time"`
-			LastUsed    time.Time `json:"last_used"`
-			AccessCount int       `json:"access_count"`
-		}
-
-		rows, err := db.Query(`
-			SELECT b.name, b.store_time, b.last_used, b.access_count, bd.data 
-			FROM blob b 
-			JOIN blob_data bd ON b.data_id = bd.data_id 
-			WHERE b.name LIKE 'torrent%'
-		`)
-		if err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
-		}
-		defer rows.Close()
-
-		// var torrents []Torrent
-		torrents := make([]Torrent, 0)
-		for rows.Next() {
-			var t Torrent
-			var fullName string
-			var storeTimeMs, lastUsedMs int64
-			var data []byte
-			if err := rows.Scan(&fullName, &storeTimeMs, &lastUsedMs, &t.AccessCount, &data); err != nil {
-				return c.JSON(500, map[string]string{"error": err.Error()})
-			}
-
-			// Extract infohash from "torrents/[infohash].torrent"
-			t.InfoHash = fullName[9 : len(fullName)-8]
-			t.StoreTime = time.UnixMilli(storeTimeMs)
-			t.LastUsed = time.UnixMilli(lastUsedMs)
-
-			// Extract torrent name from bencode data
-			t.Name = extractTorrentName(data)
-
-			torrents = append(torrents, t)
-		}
-
-		return c.JSON(200, torrents)
-	})
-
-	url1, err := url.Parse("http://localhost:8080")
-	if err != nil {
-		e.Logger.Fatal(err)
-	}
-	targets := []*middleware.ProxyTarget{
-		{
-			URL: url1,
-		},
-	}
-
-	proxy := middleware.ProxyWithConfig(middleware.ProxyConfig{
-		Skipper: func(c echo.Context) bool {
-			path := c.Request().URL.Path
-			// Proxy requests that belong to confluence
-			if path == "/api/info" || path == "/api/data" {
-				// Remove /api prefix before proxying
-				c.Request().URL.Path = strings.TrimPrefix(path, "/api")
-				return false
-			}
-			return true
-		},
-		Balancer: middleware.NewRandomBalancer(targets),
-	})
-	e.Use(proxy)
-
-	//run ./confluence command shell command in separate process
-	cmd := exec.Command("go", "run", "github.com/anacrolix/confluence@latest", "-sqliteStorage="+sqliteDB)
-	if err := cmd.Start(); err != nil {
-		// fmt.Printf("Failed to start cmd: %v", err)
-		panic("Failed to start cmd " + err.Error())
-	}
-
-	e.Logger.Fatal(e.Start(":80"))
 }

@@ -61,7 +61,7 @@ export const AvailableBooks = () => {
 		try {
 			const torrents = await getAvailableTorrents()
 			const sortedTorrents = torrents.sort((a, b) =>
-				new Date(b.lastUsed) - new Date(a.lastUsed)
+				new Date(b.lastSeen) - new Date(a.lastSeen)
 			)
 			setBooks(sortedTorrents)
 			setIsVisible(true)
@@ -95,7 +95,7 @@ export const AvailableBooks = () => {
 									<div className="p-4 rounded-lg cursor-pointer bg-[var(--bg-elevated)] hover:-translate-y-0.5 transition-transform duration-200">
 										<div className="font-medium mb-2">{book.name}</div>
 										<div className="text-sm text-[var(--text-secondary)] flex justify-between">
-											<span>Last played: {book.lastUsed.toLocaleDateString()}</span>
+											<span>Last requested: {book.lastSeen.toLocaleDateString()}</span>
 										</div>
 									</div>
 								</Link>
