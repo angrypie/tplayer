@@ -171,11 +171,13 @@ func handlePreload(c echo.Context) error {
 	}
 
 	// Start downloading data asynchronously
+	done := make(chan bool)
 	go func() {
 		defer func() {
 			preloadMutex.Lock()
 			delete(preloadMap, ih)
 			preloadMutex.Unlock()
+			done <- true
 		}()
 
 		log.Println("INFO start downloading data for infohash", ih)
@@ -202,7 +204,13 @@ func handlePreload(c echo.Context) error {
 		}
 	}()
 
-	return c.JSON(http.StatusOK, map[string]string{"status": "download started"})
+	// Wait for 5 seconds to see if download completes quickly
+	select {
+	case <-done:
+		return c.JSON(http.StatusOK, map[string]string{"status": "preload completed"})
+	case <-time.After(10 * time.Second):
+		return c.JSON(http.StatusOK, map[string]string{"status": "preload started"})
+	}
 }
 
 func setupEcho() *echo.Echo {

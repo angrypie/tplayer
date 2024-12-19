@@ -80,12 +80,13 @@ export async function preloadTorrent(ih) {
 	try {
 		const url = `/api/preload?ih=${ih}`
 		const res = await fetch(url, { mode: 'cors' })
+		const data = await res.json()
 		if (!res.ok) {
-			throw new Error(res.statusText)
+			throw new Error(data.error || res.statusText)
 		}
-		return true
+		return data.status
 	} catch (err) {
 		console.error('Failed to preload torrent:', err)
-		return false
+		throw err
 	}
 }

@@ -75,7 +75,7 @@ export const BottomBar = observer(({ store }) => {
 	const { rate, changeRate } = playerStore
 	const nextRate = () => changeRate((r => (r > 2 ? 0.5 : r))(rate + 0.25))
 	const [notes, setNotes] = useState(null)
-	const [isPreloading, setIsPreloading] = useState(false)
+	const [preloadStatus, setPreloadStatus] = useState('Preload')
 
 	const addNote = async () => {
 		const note = prompt('Enter note:')
@@ -99,12 +99,15 @@ export const BottomBar = observer(({ store }) => {
 		if (!window.confirm('This will preload the book to the server. The data will not be loaded to your device until you start playing. Continue?')) {
 			return
 		}
-		setIsPreloading(true)
+		setPreloadStatus('Checking...')
 		try {
-			await preloadTorrent(ih)
-		} finally {
-			setIsPreloading(false)
-		}
+			const status = await preloadTorrent(ih)
+			setPreloadStatus(status)
+			setTimeout(() => setPreloadStatus('Preload'), 3000)
+		} catch (err) {
+			setPreloadStatus(err.message)
+			setTimeout(() => setPreloadStatus('Preload'), 3000)
+		} 
 	}
 
 	return (
@@ -131,7 +134,7 @@ export const BottomBar = observer(({ store }) => {
 				onClick={handlePreload}
 				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
 			>
-				{isPreloading ? 'Preloading...' : 'Preload'}
+				{preloadStatus}
 			</div>
 			<div
 				onClick={(e) => {
