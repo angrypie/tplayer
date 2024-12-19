@@ -1,14 +1,57 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { formatBytes } from './utils'
 import { observer } from 'mobx-react-lite'
 import { comparePath } from '~/utils'
 
 export const TorrentInfo = observer(({ store }) => {
-	const { ih, torrentInfo, setTorrentInfo } = store
+	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile, deleteFile } = store
 
 	useEffect(() => {
 		setTorrentInfo(ih)
 	}, [ih, setTorrentInfo])
+
+	const longPressTimerRef = useRef(null)
+	const [longPressedFile, setLongPressedFile] = useState(null)
+
+	const handleTouchStart = (file) => {
+		longPressTimerRef.current = setTimeout(() => {
+			setLongPressedFile(file)
+			if (window.confirm('Delete this file?')) {
+				deleteFile(file)
+			}
+		}, 500) // 500ms for long press
+	}
+
+	const handleTouchEnd = () => {
+		if (longPressTimerRef.current) {
+			clearTimeout(longPressTimerRef.current)
+		}
+		setLongPressedFile(null)
+	}
+
+	const handleClick = (file) => {
+		if (longPressedFile === file) {
+			return // Don't trigger click if it was a long press
+		}
+		setCurrentFile(file)
+	}
+
+	const getColor = (path) => {
+		if (path[0] === '_combined') {
+			return 'bg-[#5a3fd6] text-white'
+		}
+		return ''
+	}
+
+	const getLabel = ({ cached, length, state }) => {
+		if (state === 'loading') {
+			return 'loading'
+		}
+		if (cached) {
+			return 'loaded'
+		}
+		return formatBytes(length)
+	}
 
 	return (
 		<div className='flex flex-col h-full'>
@@ -18,43 +61,31 @@ export const TorrentInfo = observer(({ store }) => {
 			</div>
 			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y'>
 				<div>
-					<PlayList store={store} />
+					{torrentInfo.files.map((file, i) => {
+						const { path } = file
+						return (
+							<div
+								key={i}
+								onClick={() => handleClick(file)}
+								onTouchStart={() => handleTouchStart(file)}
+								onTouchEnd={handleTouchEnd}
+								onMouseDown={() => handleTouchStart(file)}
+								onMouseUp={handleTouchEnd}
+								onMouseLeave={handleTouchEnd}
+								className={`h-10 px-4 flex justify-between items-center cursor-pointer ${getColor(path)} ${longPressedFile === file ? 'opacity-50' : ''}`}
+							>
+								<div>{path.join('/')}</div>
+								<div className={`font-bold ${comparePath(currentFile.path, path) ? 'text-white' : file.cached ? 'text-[#5a3fd6]' : ''}`}>
+									{getLabel(file)}
+								</div>
+							</div>
+						)
+					})}
 				</div>
 				<CleanBookDataButtons store={store} />
 			</div>
 		</div>
 	)
-})
-
-const PlayList = observer(({ store }) => {
-	const { currentFile, torrentInfo, setCurrentFile } = store
-
-	const getColor = path =>
-		comparePath(currentFile.path, path)
-			? 'bg-[#2f37ff] text-white'
-			: 'hover:bg-gray-50 bg-white'
-
-	const getLabel = ({ cached, length, state }) => {
-		let label = cached ? 'loaded' : formatBytes(length)
-		label = state === 'loading' ? 'loading' : label
-		return label
-	}
-
-	return torrentInfo.files.map((file, i) => {
-		const { path } = file
-		return (
-			<div
-				key={i}
-				onClick={() => setCurrentFile(file)}
-				className={`h-10 px-4 flex justify-between items-center cursor-pointer ${getColor(path)}`}
-			>
-				<div>{path.join('/')}</div>
-				<div className={`font-bold ${comparePath(currentFile.path, path) ? 'text-white' : file.cached ? 'text-[#5a3fd6]' : ''}`}>
-					{getLabel(file)}
-				</div>
-			</div>
-		)
-	})
 })
 
 const CleanBookDataButtons = observer(({ store }) => {

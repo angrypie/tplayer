@@ -53,15 +53,10 @@ const NotesModal = ({ notes, onClose, store }) => {
 									{formatPath(note.path)}
 								</div>
 							</div>
-							<div className="flex-1 self-center overflow-hidden text-ellipsis">
+							<div className="flex-grow">
 								{note.note}
 							</div>
-							<button
-								onClick={(e) => removeNote(e, note)}
-								className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent border-none text-gray-400 text-lg cursor-pointer p-1 rounded hover:text-red-500 hover:bg-red-50"
-							>
-								×
-							</button>
+							<button onClick={(e) => removeNote(e, note)} className="absolute right-2 top-2 bg-transparent border-none text-gray-400 hover:text-gray-600">×</button>
 						</div>
 					))}
 				</div>
@@ -76,17 +71,15 @@ export const BottomBar = observer(({ store }) => {
 	const nextRate = () => changeRate((r => (r > 2 ? 0.5 : r))(rate + 0.25))
 	const [notes, setNotes] = useState(null)
 	const [preloadStatus, setPreloadStatus] = useState('Preload')
+	const [optimizeStatus, setOptimizeStatus] = useState('Optimize')
+	const [downloadStatus, setDownloadStatus] = useState('Download All')
 
 	const addNote = async () => {
 		const note = prompt('Enter note:')
 		if (!note) return
-		const time = playerStore.getProgress()
-		const path = currentFile?.path || null
-		if (!path || time <= 0) {
-			alert('No file selected or time is not set')
-			return
-		}
-		await storage.addNote(ih, path.join('/'), time, note)
+		const { time } = playerStore
+		const path = currentFile.path.join('/')
+		await storage.addNote(ih, path, time, note)
 	}
 
 	const showNotes = async () => {
@@ -99,15 +92,54 @@ export const BottomBar = observer(({ store }) => {
 		if (!window.confirm('This will preload the book to the server. The data will not be loaded to your device until you start playing. Continue?')) {
 			return
 		}
-		setPreloadStatus('Checking...')
 		try {
 			const status = await preloadTorrent(ih)
-			setPreloadStatus(status)
-			setTimeout(() => setPreloadStatus('Preload'), 3000)
+			window.alert(status)
 		} catch (err) {
-			setPreloadStatus(err.message)
-			setTimeout(() => setPreloadStatus('Preload'), 3000)
-		} 
+			window.alert(err.message)
+		}
+	}
+
+	const handleOptimize = async () => {
+		if (!ih) return
+		if (!window.confirm('This will combine all files into one. Continue?')) {
+			return
+		}
+		setOptimizeStatus('Processing...')
+		try {
+			const result = await store.concatAllFiles()
+			if (result) {
+				setOptimizeStatus('Done')
+			} else {
+				setOptimizeStatus('Failed')
+			}
+		} catch (err) {
+			setOptimizeStatus('Error')
+			console.error(err)
+		} finally {
+			setTimeout(() => setOptimizeStatus('Optimize'), 3000)
+		}
+	}
+
+	const handleDownloadAll = async () => {
+		if (!ih) return
+		if (!window.confirm('This will download all files to your device. Continue?')) {
+			return
+		}
+		setDownloadStatus('Downloading...')
+		try {
+			const result = await store.downloadAllFiles()
+			if (result) {
+				setDownloadStatus('Done')
+			} else {
+				setDownloadStatus('Failed')
+			}
+		} catch (err) {
+			setDownloadStatus('Error')
+			console.error(err)
+		} finally {
+			setTimeout(() => setDownloadStatus('Download All'), 3000)
+		}
 	}
 
 	return (
@@ -122,13 +154,13 @@ export const BottomBar = observer(({ store }) => {
 				onClick={addNote}
 				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
 			>
-				Add Note
+				+Note
 			</div>
 			<div
 				onClick={showNotes}
 				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
 			>
-				Show Notes
+				Notes
 			</div>
 			<div
 				onClick={handlePreload}
@@ -150,6 +182,18 @@ export const BottomBar = observer(({ store }) => {
 				<div className="absolute bottom-full left-1/2 -translate-x-1/2 bg-black/80 text-white px-2 py-1 rounded text-sm whitespace-nowrap opacity-0 invisible group-[.show-popover]:opacity-100 group-[.show-popover]:visible transition-all duration-200">
 					Copied infohash
 				</div>
+			</div>
+			<div
+				onClick={handleOptimize}
+				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
+			>
+				{optimizeStatus}
+			</div>
+			<div
+				onClick={handleDownloadAll}
+				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
+			>
+				{downloadStatus}
 			</div>
 			{notes && <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} />}
 		</>
