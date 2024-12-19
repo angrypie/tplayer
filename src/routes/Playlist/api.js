@@ -75,3 +75,17 @@ export async function getAvailableTorrents() {
 		return [];
 	}
 }
+
+export async function preloadTorrent(ih) {
+	try {
+		const url = `/api/preload?ih=${ih}`
+		const res = await fetch(url, { mode: 'cors' })
+		if (!res.ok) {
+			throw new Error(res.statusText)
+		}
+		return true
+	} catch (err) {
+		console.error('Failed to preload torrent:', err)
+		return false
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -30,8 +31,14 @@ var (
 )
 
 const (
-	sqliteDB  = "tplayer.sqlite"
-	historyDB = "tplayer_history.sqlite"
+	sqliteDB       = "tplayer.sqlite"
+	historyDB      = "tplayer_history.sqlite"
+	confluenceAddr = "127.0.0.1:8080"
+)
+
+var (
+	preloadMutex sync.RWMutex
+	preloadMap   = make(map[string]bool)
 )
 
 func main() {
@@ -43,9 +50,13 @@ func main() {
 	defer historyDb.Close()
 
 	e.GET("/api/torrents", handleGetTorrents(historyDb))
+	e.GET("/api/preload", handlePreload)
 
 	//run ./confluence command shell command in separate process
-	cmd := exec.Command("go", "run", "github.com/anacrolix/confluence@latest", "-sqliteStorage="+sqliteDB)
+	cmd := exec.Command("go", "run", "github.com/anacrolix/confluence@latest",
+		"-sqliteStorage="+sqliteDB,
+		"-addr="+confluenceAddr,
+	)
 	if err := cmd.Start(); err != nil {
 		// fmt.Printf("Failed to start cmd: %v", err)
 		panic("Failed to start cmd " + err.Error())
@@ -123,6 +134,77 @@ func handleGetTorrents(db *sql.DB) echo.HandlerFunc {
 	}
 }
 
+func handlePreload(c echo.Context) error {
+	ih := c.QueryParam("ih")
+	if ih == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "infohash is required"})
+	}
+
+	// Check if already preloading
+	preloadMutex.RLock()
+	if preloadMap[ih] {
+		preloadMutex.RUnlock()
+		return c.JSON(http.StatusOK, map[string]string{"status": "already preloading"})
+	}
+	preloadMutex.RUnlock()
+
+	// Set preloading status
+	preloadMutex.Lock()
+	preloadMap[ih] = true
+	preloadMutex.Unlock()
+
+	// Check if torrent exists
+	resp, err := http.Get("http://" + confluenceAddr + "/info?ih=" + url.QueryEscape(ih))
+	if err != nil {
+		preloadMutex.Lock()
+		delete(preloadMap, ih)
+		preloadMutex.Unlock()
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to check torrent info"})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		preloadMutex.Lock()
+		delete(preloadMap, ih)
+		preloadMutex.Unlock()
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "torrent not found"})
+	}
+
+	// Start downloading data asynchronously
+	go func() {
+		defer func() {
+			preloadMutex.Lock()
+			delete(preloadMap, ih)
+			preloadMutex.Unlock()
+		}()
+
+		log.Println("INFO start downloading data for infohash", ih)
+		req, _ := http.NewRequest(http.MethodGet, "http://"+confluenceAddr+"/data?ih="+url.QueryEscape(ih), nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			log.Printf("Error downloading data for infohash %s: %v", ih, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Read and discard data in chunks to trigger the download
+		buf := make([]byte, 16*1024*1024) // 16MB chunks
+		for {
+			_, err := resp.Body.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("Error reading data for infohash %s: %v", ih, err)
+				} else {
+					log.Printf("INFO Downloaded data for infohash %s", ih)
+				}
+				return
+			}
+		}
+	}()
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "download started"})
+}
+
 func setupEcho() *echo.Echo {
 	e := echo.New()
 	e.Use(middleware.Recover())
@@ -134,7 +216,7 @@ func setupEcho() *echo.Echo {
 	e.FileFS("/playlist/*", "index.html", distIndexHtml)
 	//TODO setup proper redirect for spa (for now it's only one page so it's ok)
 
-	url1, err := url.Parse("http://localhost:8080")
+	url1, err := url.Parse("http://" + confluenceAddr)
 	if err != nil {
 		e.Logger.Fatal(err)
 	}

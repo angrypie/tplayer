@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { storage } from '~/storage'
 import { timeFormat } from './ProgressLines'
+import { preloadTorrent } from '../api'
 
 const formatPath = (path) => {
 	if (!path || path.length <= 14) return path
@@ -74,6 +75,7 @@ export const BottomBar = observer(({ store }) => {
 	const { rate, changeRate } = playerStore
 	const nextRate = () => changeRate((r => (r > 2 ? 0.5 : r))(rate + 0.25))
 	const [notes, setNotes] = useState(null)
+	const [isPreloading, setIsPreloading] = useState(false)
 
 	const addNote = async () => {
 		const note = prompt('Enter note:')
@@ -90,6 +92,19 @@ export const BottomBar = observer(({ store }) => {
 	const showNotes = async () => {
 		const fetchedNotes = await storage.getAllNotes(ih)
 		setNotes(fetchedNotes)
+	}
+
+	const handlePreload = async () => {
+		if (!ih) return
+		if (!window.confirm('This will preload the book to the server. The data will not be loaded to your device until you start playing. Continue?')) {
+			return
+		}
+		setIsPreloading(true)
+		try {
+			await preloadTorrent(ih)
+		} finally {
+			setIsPreloading(false)
+		}
 	}
 
 	return (
@@ -111,6 +126,12 @@ export const BottomBar = observer(({ store }) => {
 				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
 			>
 				Show Notes
+			</div>
+			<div
+				onClick={handlePreload}
+				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
+			>
+				{isPreloading ? 'Preloading...' : 'Preload'}
 			</div>
 			<div
 				onClick={(e) => {
