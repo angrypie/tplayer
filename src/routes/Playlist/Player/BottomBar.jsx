@@ -38,27 +38,27 @@ const NotesModal = ({ notes, onClose, store }) => {
 	}
 
 	return (
-		<div className="fixed inset-0 bg-black/70 flex justify-center items-center z-[1000]" onClick={onClose}>
-			<div className="bg-white rounded-lg w-[90%] max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-				<div className="flex justify-between items-center px-4 border-b border-gray-200">
-					<h3>Notes</h3>
-					<button onClick={onClose} className="bg-transparent border-none text-2xl cursor-pointer">×</button>
+		<div className="fixed inset-0 bg-background/70 flex justify-center items-center z-[1000]" onClick={onClose}>
+			<div className="bg-card rounded-lg w-[90%] max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+				<div className="flex justify-between items-center px-4 border-b border-border">
+					<h3 className="text-foreground">Notes</h3>
+					<button onClick={onClose} className="bg-transparent border-none text-2xl cursor-pointer text-muted-foreground hover:text-foreground">×</button>
 				</div>
 				<div className="overflow-y-auto p-4">
 					{localNotes.map(note => (
-						<div key={note.id} className="flex gap-4 p-2 pr-10 border-b border-gray-200 bg-white hover:bg-gray-50 cursor-pointer relative" onClick={() => seekToNote(note)}>
+						<div key={note.id} className="flex gap-4 p-2 pr-10 border-b border-border bg-card hover:bg-accent cursor-pointer relative" onClick={() => seekToNote(note)}>
 							<div className="flex flex-col min-w-[8rem] flex-shrink-0">
-								<div className={`mb-3 text-gray-600 transition-colors duration-300 ${clickedNoteId === note.id ? 'text-blue-600 font-bold' : ''}`}>
+								<div className={`mb-3 text-muted-foreground transition-colors duration-300 ${clickedNoteId === note.id ? 'text-primary font-bold' : ''}`}>
 									{timeFormat(note.time)}
 								</div>
-								<div className="text-gray-500 text-sm truncate">
+								<div className="text-muted-foreground text-sm truncate">
 									{formatPath(note.path)}
 								</div>
 							</div>
-							<div className="flex-grow">
+							<div className="flex-grow text-foreground">
 								{note.note}
 							</div>
-							<button onClick={(e) => removeNote(e, note)} className="absolute right-2 top-2 bg-transparent border-none text-gray-400 hover:text-gray-600">×</button>
+							<button onClick={(e) => removeNote(e, note)} className="absolute right-2 top-2 bg-transparent border-none text-muted-foreground hover:text-foreground">×</button>
 						</div>
 					))}
 				</div>
@@ -79,7 +79,7 @@ const Actions = ({ store, preloadStatus, optimizeStatus, downloadStatus, handleP
 						className="fixed inset-0"
 						onClick={() => setDropdownOpen(false)}
 					/>
-					<div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg overflow-hidden shadow-lg min-w-[200px]">
+					<div className="absolute bottom-full right-0 mb-2 bg-card rounded-lg overflow-hidden shadow-lg min-w-[200px] border border-border">
 						<Button variant="ghost" className="w-full justify-start"
 							onClick={() => {
 								handlePreload();
@@ -104,7 +104,7 @@ const Actions = ({ store, preloadStatus, optimizeStatus, downloadStatus, handleP
 						>
 							{downloadStatus}
 						</Button>
-						<div className="border-t border-gray-100">
+						<div className="border-t border-border">
 							<CleanBookDataButtons store={store} allFiles={store.torrentInfo?.files || []} />
 						</div>
 					</div>
@@ -218,7 +218,7 @@ export const BottomBar = observer(({ store }) => {
 				title="Copy infohash"
 			>
 				[ih]
-				<div className="absolute bottom-full left-1/2 -translate-x-1/2 bg-black/80 text-white px-2 py-1 rounded text-sm whitespace-nowrap opacity-0 invisible group-[.show-popover]:opacity-100 group-[.show-popover]:visible transition-all duration-200">
+				<div className="absolute bottom-full left-1/2 -translate-x-1/2 bg-popover text-popover-foreground px-2 py-1 rounded text-sm whitespace-nowrap opacity-0 invisible group-[.show-popover]:opacity-100 group-[.show-popover]:visible transition-all duration-200">
 					Copied infohash
 				</div>
 			</Button>
