@@ -4,6 +4,7 @@ import { observer } from 'mobx-react-lite'
 import { comparePath } from '~/utils'
 import { storage } from '~/storage'
 import natsort from 'natsort'
+import { COMBINED_FILES_PREFIX } from './store'
 
 const getLabel = (file) => {
 	if (file.state === 'loading') {
@@ -20,8 +21,8 @@ const getLabel = (file) => {
 }
 
 const stripCombinedPrefix = (path) => {
-	if (path[0] === '__combined__') {
-		return path.slice(2)
+	if (path[0] === COMBINED_FILES_PREFIX) {
+		return path.slice(1)
 	}
 	return path
 }
@@ -110,7 +111,7 @@ export const TorrentInfo = observer(({ store }) => {
 	)
 })
 
-const CleanBookDataButtons = observer(({ store, allFiles }) => {
+export const CleanBookDataButtons = observer(({ store, allFiles }) => {
 	const { torrentInfo, cleanBookData, removeBook, ih } = store
 	const cachedPartsLength = allFiles.reduce(
 		(total, { cached, length }) => (!cached ? total : total + length),

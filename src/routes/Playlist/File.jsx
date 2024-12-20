@@ -100,24 +100,28 @@ export const File = observer(({ store }) => {
     const [nextFileToPreload, setNextFileToPreload] = useState(null)
 
     useEffect(() => {
-        const downloadCurrentAndSet = async () => {
-            const url = await getAudio(currentFile)
-            if (url === null) {
+        const loadAudio = async () => {
+            if (!ih || !currentFile.path.length) {
                 return
             }
-            setAudio(url)
-            
-            // Check if we should start preloading next file
-            const nextFile = getNextFile()
-            if (nextFile && !nextFile.cached) {
-                setNextFileToPreload(nextFile)
-                setShowPreload(true)
+
+            try {
+                const audio = await getAudio(currentFile)
+                if (audio) {
+                    setAudio(audio)
+                } else {
+                    // If current file fails, try to get next file
+                    const nextFile = await getNextFile()
+                    if (nextFile) {
+                        await store.setCurrentFile(nextFile)
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading audio:', error)
             }
         }
 
-        if (ih) {
-            downloadCurrentAndSet()
-        }
+        loadAudio()
     }, [ih, currentFile, getAudio, getNextFile])
 
     useEffect(
@@ -126,6 +130,38 @@ export const File = observer(({ store }) => {
         },
         [audio]
     )
+
+    useEffect(() => {
+        const downloadNextAndSet = async () => {
+            if (nextFileToPreload) {
+                const url = await getAudio(nextFileToPreload)
+                if (url === null) {
+                    return
+                }
+                setAudio(url)
+            }
+        }
+
+        if (nextFileToPreload) {
+            downloadNextAndSet()
+        }
+    }, [nextFileToPreload, getAudio])
+
+    useEffect(() => {
+        const checkIfShouldPreloadNext = async () => {
+            if (currentFile && !currentFile.cached) {
+                const nextFile = await getNextFile()
+                if (nextFile && !nextFile.cached) {
+                    setNextFileToPreload(nextFile)
+                    setShowPreload(true)
+                }
+            }
+        }
+
+        if (ih) {
+            checkIfShouldPreloadNext()
+        }
+    }, [ih, currentFile, getNextFile])
 
     const handlePreloadComplete = () => {
         setShowPreload(false)

@@ -3,6 +3,8 @@ import { observer } from 'mobx-react-lite'
 import { storage } from '~/storage'
 import { timeFormat } from './ProgressLines'
 import { preloadTorrent } from '../api'
+import { CleanBookDataButtons } from '../TorrentInfo'
+import { Button } from '~/components/ui/button'
 
 const formatPath = (path) => {
 	if (!path || path.length <= 14) return path
@@ -18,7 +20,7 @@ const NotesModal = ({ notes, onClose, store }) => {
 	const seekToNote = note => {
 		setClickedNoteId(note.id)
 		setTimeout(() => setClickedNoteId(null), 2000)
-		
+
 		const pathStr = note.path
 		//search file in torrent info
 		const file = torrentInfo.files.find(({ path: p }) => pathStr === p.join('/'))
@@ -61,6 +63,53 @@ const NotesModal = ({ notes, onClose, store }) => {
 					))}
 				</div>
 			</div>
+		</div>
+	)
+}
+
+const Actions = ({ store, preloadStatus, optimizeStatus, downloadStatus, handlePreload, handleOptimize, handleDownloadAll }) => {
+	const [dropdownOpen, setDropdownOpen] = useState(false)
+
+	return (
+		<div className="relative">
+			<Button onClick={() => setDropdownOpen(!dropdownOpen)} variant="ghost" > Actions </Button>
+			{dropdownOpen && (
+				<>
+					<div
+						className="fixed inset-0"
+						onClick={() => setDropdownOpen(false)}
+					/>
+					<div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg overflow-hidden shadow-lg min-w-[200px]">
+						<Button variant="ghost" className="w-full justify-start"
+							onClick={() => {
+								handlePreload();
+								setDropdownOpen(false);
+							}}
+						>
+							{preloadStatus}
+						</Button>
+						<Button variant="ghost" className="w-full justify-start"
+							onClick={() => {
+								handleOptimize();
+								setDropdownOpen(false);
+							}}
+						>
+							{optimizeStatus}
+						</Button>
+						<Button variant="ghost" className="w-full justify-start"
+							onClick={() => {
+								handleDownloadAll();
+								setDropdownOpen(false);
+							}}
+						>
+							{downloadStatus}
+						</Button>
+						<div className="border-t border-gray-100">
+							<CleanBookDataButtons store={store} allFiles={store.torrentInfo?.files || []} />
+						</div>
+					</div>
+				</>
+			)}
 		</div>
 	)
 }
@@ -144,57 +193,35 @@ export const BottomBar = observer(({ store }) => {
 
 	return (
 		<>
-			<div
-				onClick={nextRate}
-				className="font-bold h-8 w-12 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
-			>
-				{`x${rate}`}
-			</div>
-			<div
-				onClick={addNote}
-				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
-			>
-				+Note
-			</div>
-			<div
-				onClick={showNotes}
-				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
-			>
-				Notes
-			</div>
-			<div
-				onClick={handlePreload}
-				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
-			>
-				{preloadStatus}
-			</div>
-			<div
+			<Button onClick={nextRate} variant="ghost" className="w-12" > {`x${rate}`} </Button>
+			<Button onClick={addNote} variant="ghost" > +Note </Button>
+			<Button onClick={showNotes} variant="ghost" > Notes </Button>
+			<Actions
+				store={store}
+				preloadStatus={preloadStatus}
+				optimizeStatus={optimizeStatus}
+				downloadStatus={downloadStatus}
+				handlePreload={handlePreload}
+				handleOptimize={handleOptimize}
+				handleDownloadAll={handleDownloadAll}
+			/>
+			<Button
 				onClick={(e) => {
 					navigator.clipboard.writeText(store.ih);
 					const button = e.currentTarget;
 					button.classList.add('show-popover');
 					setTimeout(() => button.classList.remove('show-popover'), 1000);
 				}}
-				className="font-bold h-8 w-8 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200 relative group"
+				variant="ghost"
+
+				className="w-8 relative group"
 				title="Copy infohash"
 			>
 				[ih]
 				<div className="absolute bottom-full left-1/2 -translate-x-1/2 bg-black/80 text-white px-2 py-1 rounded text-sm whitespace-nowrap opacity-0 invisible group-[.show-popover]:opacity-100 group-[.show-popover]:visible transition-all duration-200">
 					Copied infohash
 				</div>
-			</div>
-			<div
-				onClick={handleOptimize}
-				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
-			>
-				{optimizeStatus}
-			</div>
-			<div
-				onClick={handleDownloadAll}
-				className="font-bold h-8 px-3 flex justify-center items-center cursor-pointer opacity-60 hover:opacity-100 transition-opacity duration-200"
-			>
-				{downloadStatus}
-			</div>
+			</Button>
 			{notes && <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} />}
 		</>
 	)

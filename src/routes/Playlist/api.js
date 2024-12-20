@@ -29,7 +29,7 @@ export async function getAudio(ih, pathArr) {
 		}
 		const buf = await res.arrayBuffer()
 		const array = new Uint8Array(buf)
-		const blob = new Blob([array], { type: 'audio/mp3' })
+		const blob = new Blob([array], { type: 'audio/mpeg' })
 
 		storage.addFile(ih, path, blob)
 		return URL.createObjectURL(blob)

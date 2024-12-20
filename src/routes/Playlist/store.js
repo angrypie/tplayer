@@ -8,6 +8,8 @@ import natsort from 'natsort'
 import React from 'react'
 import { runInAction } from 'mobx'
 
+export const COMBINED_FILES_PREFIX = 'combined_Joh1thoh'
+
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
 	const bookStore = useBookStore({ ih, playerStore })
@@ -25,8 +27,8 @@ export const useBookStore = ({ ih, playerStore }) => {
 		torrentInfo: { name: '', files: [], length: 0 },
 		currentFile: { path: [] },
 
-		getNextFile() {
-			const files = store.torrentInfo.files
+		async getNextFile() {
+			const files = await store.getAllTorrentFiles()
 			const currentPath = store.currentFile.path
 			const currentIndex = files.findIndex(({ path }) =>
 				comparePath(path, currentPath)
@@ -89,7 +91,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 			// First pass: process combined files and collect hidden files
 			for (let file of files) {
 				const pathParts = file.path.split('/')
-				if (pathParts[0] === '__combined__') {
+				if (pathParts[0] === COMBINED_FILES_PREFIX) {
 					const [startIdx, endIdx] = pathParts[1].split('-').map(Number)
 					// Add original files to hidden set
 					for (let i = startIdx; i <= endIdx; i++) {
@@ -292,11 +294,11 @@ export const useBookStore = ({ ih, playerStore }) => {
 					for (const file of group) {
 						const storedFile = await storage.getFile(ih, file.path.join('/'))
 						if (!storedFile) {
-							alert('Some files are missing')
 							return false
 						}
 						blobs.push(storedFile.file)
 					}
+
 
 					// Concatenate files in the group
 					const combinedBlob = await concatMP3Blobs(blobs)
@@ -309,7 +311,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 
 					// Save combined file to storage with range information
 					const firstIndex = torrentInfo.files.findIndex(f => f.path.join('/') === group[0].path.join('/'))
-					const rangePrefix = `__combined__/${firstIndex}-${firstIndex + group.length - 1}/`
+					const rangePrefix = `${COMBINED_FILES_PREFIX}/${firstIndex}-${firstIndex + group.length - 1}/`
 					const combinedPath = rangePrefix + group[0].path.join('/')
 					await storage.addFile(ih, combinedPath, combinedBlob)
 
@@ -327,7 +329,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 	}))
 
 	store.playerStore.player.onEnd = async () => {
-		const nextFile = store.getNextFile()
+		const nextFile = await store.getNextFile()
 		const ok = await store.setCurrentFile(nextFile)
 		if (!ok) {
 			store.setCurrentFile(nextFile)
@@ -360,19 +362,17 @@ function isMP3(buffer) {
 
 async function concatMP3Blobs(blobs) {
 	if (!blobs || blobs.length === 0) {
-		return new Blob([], { type: 'audio/mp3' }); // Return an empty MP3 blob if no blobs are provided
+		return new Blob([], { type: 'audio/mpeg' }); // Return an empty MP3 blob if no blobs are provided
 	}
 
 	const audioBuffers = [];
 	for (const blob of blobs) {
 		const arrayBuffer = await blob.arrayBuffer();
 		const buffer = new Uint8Array(arrayBuffer);
-
-		// Check if the file is a valid MP3
+		// skip non-mp3 files
 		if (!isMP3(buffer)) {
-			throw new Error('Invalid MP3 file detected');
+			continue
 		}
-
 		audioBuffers.push(buffer);
 	}
 
@@ -398,5 +398,5 @@ async function concatMP3Blobs(blobs) {
 	}
 
 	// Create a new Blob from the combined buffer
-	return new Blob([combinedBuffer], { type: 'audio/mp3' });
+	return new Blob([combinedBuffer], { type: 'audio/mpeg' });
 }
