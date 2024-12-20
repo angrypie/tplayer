@@ -1,96 +1,118 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState } from 'react'
 import { formatBytes } from './utils'
 import { observer } from 'mobx-react-lite'
 import { comparePath } from '~/utils'
+import { storage } from '~/storage'
+import natsort from 'natsort'
+
+const getLabel = (file) => {
+	if (file.state === 'loading') {
+		return 'loading'
+	}
+	if (file.cached) {
+		if (file.isCombined) {
+			const [start, end] = file.originalIndexes
+			return `Combined (${end - start + 1} files)`
+		}
+		return 'loaded'
+	}
+	return formatBytes(file.length)
+}
+
+const stripCombinedPrefix = (path) => {
+	if (path[0] === '__combined__') {
+		return path.slice(2)
+	}
+	return path
+}
+
+const loadAndSortFiles = async (store, ih) => {
+	if (!ih) return []
+	const files = await store.getAllTorrentFiles(ih)
+	files.sort((a, b) => {
+		const aPath = stripCombinedPrefix(a.path).join('/')
+		const bPath = stripCombinedPrefix(b.path).join('/')
+		return natsort()(aPath, bPath)
+	})
+	return files
+}
 
 export const TorrentInfo = observer(({ store }) => {
-	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile, deleteFile } = store
+	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile } = store
+	const f = torrentInfo.files
+	const [allFiles, setAllFiles] = useState([])
 
 	useEffect(() => {
 		setTorrentInfo(ih)
 	}, [ih, setTorrentInfo])
 
-	const longPressTimerRef = useRef(null)
-	const [longPressedFile, setLongPressedFile] = useState(null)
-
-	const handleTouchStart = (file) => {
-		longPressTimerRef.current = setTimeout(() => {
-			setLongPressedFile(file)
-			if (window.confirm('Delete this file?')) {
-				deleteFile(file)
-			}
-		}, 500) // 500ms for long press
+	const updateFiles = async () => {
+		const files = await loadAndSortFiles(store, ih)
+		setAllFiles(files)
 	}
 
-	const handleTouchEnd = () => {
-		if (longPressTimerRef.current) {
-			clearTimeout(longPressTimerRef.current)
+	useEffect(() => {
+		updateFiles()
+	}, [ih, store.torrentInfo])
+
+	const handleDelete = async (file) => {
+		const success = await store.removeFile(ih, file)
+		if (success) {
+			updateFiles()
 		}
-		setLongPressedFile(null)
 	}
 
 	const handleClick = (file) => {
-		if (longPressedFile === file) {
-			return // Don't trigger click if it was a long press
-		}
 		setCurrentFile(file)
-	}
-
-	const getColor = (path) => {
-		if (path[0] === '_combined') {
-			return 'bg-[#5a3fd6] text-white'
-		}
-		return ''
-	}
-
-	const getLabel = ({ cached, length, state }) => {
-		if (state === 'loading') {
-			return 'loading'
-		}
-		if (cached) {
-			return 'loaded'
-		}
-		return formatBytes(length)
 	}
 
 	return (
 		<div className='flex flex-col h-full'>
-			<div className='h-[100px] mx-4'>
-				<div className='text-4xl font-bold leading-tight'>Book</div>
-				<div className='text-2xl font-bold opacity-50 leading-normal truncate'>{torrentInfo.name}</div>
+			<div className='font-bold text-lg'>
+				{torrentInfo.name}
 			</div>
 			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y'>
 				<div>
-					{torrentInfo.files.map((file, i) => {
+					{allFiles.map((file, i) => {
 						const { path } = file
+						const displayPath = stripCombinedPrefix(path).join('/')
+						const currentStyle = comparePath(path, currentFile.path) ? 'bg-gray-200' : ''
 						return (
 							<div
-								key={i}
+								key={path.join('/')}
+								className={`flex justify-between items-center p-2 cursor-pointer hover:bg-gray-100 ${currentStyle}`}
 								onClick={() => handleClick(file)}
-								onTouchStart={() => handleTouchStart(file)}
-								onTouchEnd={handleTouchEnd}
-								onMouseDown={() => handleTouchStart(file)}
-								onMouseUp={handleTouchEnd}
-								onMouseLeave={handleTouchEnd}
-								className={`h-10 px-4 flex justify-between items-center cursor-pointer ${getColor(path)} ${longPressedFile === file ? 'opacity-50' : ''}`}
 							>
-								<div>{path.join('/')}</div>
-								<div className={`font-bold ${comparePath(currentFile.path, path) ? 'text-white' : file.cached ? 'text-[#5a3fd6]' : ''}`}>
-									{getLabel(file)}
+								<div className='truncate flex-1'>{displayPath}</div>
+								<div className='flex items-center'>
+									<div className='text-sm text-gray-500 mr-2'>
+										{getLabel(file)}
+									</div>
+									{file.cached && (
+										<button
+											onClick={(e) => {
+												e.stopPropagation()
+												handleDelete(file)
+											}}
+											className='text-red-500 hover:text-red-700'
+										>
+											×
+										</button>
+									)}
 								</div>
 							</div>
 						)
 					})}
+					<CleanBookDataButtons store={store} allFiles={allFiles} />
 				</div>
-				<CleanBookDataButtons store={store} />
 			</div>
 		</div>
 	)
 })
 
-const CleanBookDataButtons = observer(({ store }) => {
+const CleanBookDataButtons = observer(({ store, allFiles }) => {
 	const { torrentInfo, cleanBookData, removeBook, ih } = store
-	const cachedPartsLength = torrentInfo.files.reduce(
+	const cachedPartsLength = allFiles.reduce(
 		(total, { cached, length }) => (!cached ? total : total + length),
 		0
 	)

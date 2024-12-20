@@ -57,6 +57,11 @@ async function getFile(ih, path) {
 	return file
 }
 
+async function getAllFilesForTorrent(ih) {
+	const files = await db.files.where('ih').equals(ih).toArray()
+	return files
+}
+
 async function removeFile(ih, path) {
 	try {
 		await db.files.where({ ih, path }).delete()
@@ -130,4 +135,5 @@ export const storage = {
 	getNote,
 	getAllNotes,
 	removeNote,
+	getAllFilesForTorrent
 }

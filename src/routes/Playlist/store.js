@@ -6,6 +6,7 @@ import { toJS } from 'mobx'
 import { comparePath } from '~/utils'
 import natsort from 'natsort'
 import React from 'react'
+import { runInAction } from 'mobx'
 
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
@@ -77,6 +78,57 @@ export const useBookStore = ({ ih, playerStore }) => {
 			store.torrentInfo = torrentInfo
 		},
 
+		//all files in metadata plus from storage merged into one array
+		async getAllTorrentFiles() {
+			const files = await storage.getAllFilesForTorrent(ih)
+
+			const storedPath = {}
+			const allFiles = []
+			const hiddenFiles = new Set() // Track files that were combined
+
+			// First pass: process combined files and collect hidden files
+			for (let file of files) {
+				const pathParts = file.path.split('/')
+				if (pathParts[0] === '__combined__') {
+					const [startIdx, endIdx] = pathParts[1].split('-').map(Number)
+					// Add original files to hidden set
+					for (let i = startIdx; i <= endIdx; i++) {
+						const originalFile = store.torrentInfo.files[i]
+						if (originalFile) {
+							hiddenFiles.add(originalFile.path.join('/'))
+						}
+					}
+					storedPath[file.path] = true
+					allFiles.push({
+						path: file.path.split('/'),
+						length: file.file.size,
+						cached: true,
+						state: 'ready',
+						isCombined: true,
+						originalIndexes: [startIdx, endIdx]
+					})
+				} else {
+					storedPath[file.path] = true
+					allFiles.push({
+						path: file.path.split('/'),
+						length: file.file.size,
+						cached: true,
+						state: 'ready'
+					})
+				}
+			}
+
+			// Add files from torrent metadata that weren't combined or stored
+			for (let file of store.torrentInfo.files) {
+				const filePath = file.path.join('/')
+				if (!storedPath[filePath] && !hiddenFiles.has(filePath)) {
+					allFiles.push(file)
+				}
+			}
+
+			return allFiles
+		},
+
 		async setTorrentInfo(ih) {
 			const info = await getTorrentInfo(ih)
 			const { name = '', files = [], length = 0, state } = info
@@ -135,42 +187,15 @@ export const useBookStore = ({ ih, playerStore }) => {
 			return result
 		},
 
-		async deleteFile(file) {
-			const { ih } = store
-			if (!ih || !file?.path) {
-				return false
+		async removeFile(ih, file) {
+			const success = await storage.removeFile(ih, file.path.join('/'))
+			if (success) {
+				runInAction(() => {
+					file.cached = false
+					file.state = 'ready'
+				})
 			}
-
-			try {
-				// Get file path as string
-				const path = file.path.join('/')
-
-				// Check if file exists before trying to delete
-				const existingFile = await storage.getFile(ih, path)
-				if (!existingFile) {
-					return false
-				}
-
-				// Try to remove the file
-				const removed = await storage.removeFile(ih, path)
-				if (!removed) {
-					return false
-				}
-				
-				// Update file status in torrent info only if deletion was successful
-				const fileInList = store.torrentInfo.files.find(f => 
-					comparePath(f.path, file.path)
-				)
-				if (fileInList) {
-					fileInList.cached = false
-					fileInList.state = ''
-				}
-
-				return true
-			} catch (err) {
-				console.error('Error deleting file:', err)
-				return false
-			}
+			return success
 		},
 
 		async downloadAllFiles() {
@@ -214,7 +239,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 			const files = torrentInfo.files.slice()
 			let currentGroup = []
 			const groups = []
-			
+
 			for (const file of files) {
 				if (file.cached) {
 					currentGroup.push(file)
@@ -275,15 +300,17 @@ export const useBookStore = ({ ih, playerStore }) => {
 
 					// Concatenate files in the group
 					const combinedBlob = await concatMP3Blobs(blobs)
-					
+
 					// Verify the combined size doesn't exceed MAX_SIZE
 					if (combinedBlob.size > MAX_SIZE) {
 						alert('Combined file would exceed 100MB limit')
 						return false
 					}
-					
-					// Save combined file to storage
-					const combinedPath = '_combined/' + group[0].path.join('/')
+
+					// Save combined file to storage with range information
+					const firstIndex = torrentInfo.files.findIndex(f => f.path.join('/') === group[0].path.join('/'))
+					const rangePrefix = `__combined__/${firstIndex}-${firstIndex + group.length - 1}/`
+					const combinedPath = rangePrefix + group[0].path.join('/')
 					await storage.addFile(ih, combinedPath, combinedBlob)
 
 					// Remove original files from storage
@@ -291,17 +318,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 						await storage.removeFile(ih, file.path.join('/'))
 					}
 
-					// Create combined file info
-					const combinedFile = {
-						path: combinedPath.split('/'),
-						length: combinedBlob.size,
-						cached: true,
-						state: 'ready'
-					}
-
-					// Replace the group in torrentInfo.files with the combined file
-					const firstIndex = torrentInfo.files.findIndex(f => f.path.join('/') === group[0].path.join('/'))
-					torrentInfo.files.splice(firstIndex, group.length, combinedFile)
+					store.setTorrentInfo(ih)
 				}
 			}
 
@@ -350,12 +367,12 @@ async function concatMP3Blobs(blobs) {
 	for (const blob of blobs) {
 		const arrayBuffer = await blob.arrayBuffer();
 		const buffer = new Uint8Array(arrayBuffer);
-		
+
 		// Check if the file is a valid MP3
 		if (!isMP3(buffer)) {
 			throw new Error('Invalid MP3 file detected');
 		}
-		
+
 		audioBuffers.push(buffer);
 	}
 
