@@ -8,15 +8,13 @@ export const Search = () => {
 	const searchRef = useRef(null)
 	const [, setLocation] = useLocation()
 
-	const searchBook = () => {
-		const query = searchRef.current.value
-		const matches = query.match(/([A-F\d]{40})/i)
-		if (matches === null) {
-			return
-		}
 
-		const ih = matches[1]
-		setLocation(`/playlist/${ih}`)
+	const searchBook = () => {
+		const query = searchRef.current?.value || ''
+		const infoHash = extractInfoHash(query)
+		if (infoHash) {
+			setLocation(`/playlist/${infoHash}`)
+		}
 	}
 
 	const handlePaste = async () => {
@@ -30,16 +28,52 @@ export const Search = () => {
 		}
 	}
 
+	const handleKeyDown = (e) => {
+		if (e.key === 'Enter') {
+			searchBook()
+		}
+	}
+
 	return (
 		<div className='flex items-center gap-2 mx-3 h-12'>
 			<Input
-				type='text' 
-				ref={searchRef} 
-				placeholder='magnet link or info hash' 
+				type='text'
+				ref={searchRef}
+				placeholder='magnet link or info hash'
 				className='flex-1 min-w-0'
+				onKeyDown={handleKeyDown}
 			/>
-			<Button className='h-10 whitespace-nowrap' variant='outline' onClick={() => handlePaste()}><ClipboardPaste className="h-4 w-4" /></Button>
-			<Button className='h-10 whitespace-nowrap' onClick={() => searchBook()}>search</Button>
+			<Button className='h-10 whitespace-nowrap' variant='outline' onClick={handlePaste}>
+				<ClipboardPaste className="h-4 w-4" />
+			</Button>
+			<Button className='h-10 whitespace-nowrap' onClick={searchBook}>
+				search
+			</Button>
 		</div>
 	)
+}
+function extractInfoHash(input) {
+	if (!input) return null
+	input = input.trim()
+
+	// Direct info hash (40 hex characters)
+	if (/^[a-f0-9]{40}$/i.test(input)) {
+		return input
+	}
+
+	// Magnet URI format
+	try {
+		const url = new URL(input)
+		if (url.protocol !== 'magnet:') return null
+
+		// Get xt parameter
+		const xt = url.searchParams.get('xt')
+		if (!xt) return null
+
+		// Extract info hash from xt parameter
+		const matches = xt.match(/^urn:btih:([a-f0-9]{40})$/i)
+		return matches ? matches[1] : null
+	} catch {
+		return null
+	}
 }
