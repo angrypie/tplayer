@@ -1,15 +1,14 @@
-import React, { useRef } from 'react'
+import React, { useRef, KeyboardEvent } from 'react'
 import { useLocation } from 'wouter'
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { ClipboardPaste } from 'lucide-react'
 
-export const Search = () => {
-	const searchRef = useRef(null)
+export const Search: React.FC = () => {
+	const searchRef = useRef<HTMLInputElement>(null)
 	const [, setLocation] = useLocation()
 
-
-	const searchBook = () => {
+	const searchBook = (): void => {
 		const query = searchRef.current?.value || ''
 		const infoHash = extractInfoHash(query)
 		if (infoHash) {
@@ -17,7 +16,7 @@ export const Search = () => {
 		}
 	}
 
-	const handlePaste = async () => {
+	const handlePaste = async (): Promise<void> => {
 		try {
 			const text = await navigator.clipboard.readText()
 			if (searchRef.current) {
@@ -28,7 +27,7 @@ export const Search = () => {
 		}
 	}
 
-	const handleKeyDown = (e) => {
+	const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
 		if (e.key === 'Enter') {
 			searchBook()
 		}
@@ -52,7 +51,8 @@ export const Search = () => {
 		</div>
 	)
 }
-function extractInfoHash(input) {
+
+function extractInfoHash(input: string): string | null {
 	if (!input) return null
 	input = input.trim()
 
