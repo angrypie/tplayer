@@ -11,11 +11,16 @@ const formatPath = (path) => {
 	return path.slice(0, 4) + '...' + path.slice(-10)
 }
 
+// type NotesModalProps = {
+// 	notes: Note[] | undefined
+// 	onClose: () => void
+// 	store: BookStore
+// }
+
 const NotesModal = ({ notes, onClose, store }) => {
 	const { setCurrentFile, torrentInfo } = store
 	const [localNotes, setLocalNotes] = useState(notes)
 	const [clickedNoteId, setClickedNoteId] = useState(null)
-	if (!localNotes?.length) return null
 
 	const seekToNote = note => {
 		setClickedNoteId(note.id)
@@ -37,6 +42,23 @@ const NotesModal = ({ notes, onClose, store }) => {
 		setLocalNotes(localNotes.filter(n => n.id !== note.id))
 	}
 
+	const notesList = localNotes.map(note => (
+		<div key={note.id} className="flex gap-4 p-2 pr-10 border-b border-border bg-card hover:bg-accent cursor-pointer relative" onClick={() => seekToNote(note)}>
+			<div className="flex flex-col min-w-[8rem] flex-shrink-0">
+				<div className={`mb-3 text-muted-foreground transition-colors duration-300 ${clickedNoteId === note.id ? 'text-primary font-bold' : ''}`}>
+					{timeFormat(note.time)}
+				</div>
+				<div className="text-muted-foreground text-sm truncate">
+					{formatPath(note.path)}
+				</div>
+			</div>
+			<div className="flex-grow text-foreground">
+				{note.note}
+			</div>
+			<button onClick={(e) => removeNote(e, note)} className="absolute right-2 top-2 bg-transparent border-none text-muted-foreground hover:text-foreground">×</button>
+		</div>
+	))
+
 	return (
 		<div className="fixed inset-0 bg-background/70 flex justify-center items-center z-[1000]" onClick={onClose}>
 			<div className="bg-card rounded-lg w-[90%] max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
@@ -45,22 +67,7 @@ const NotesModal = ({ notes, onClose, store }) => {
 					<button onClick={onClose} className="bg-transparent border-none text-2xl cursor-pointer text-muted-foreground hover:text-foreground">×</button>
 				</div>
 				<div className="overflow-y-auto p-4">
-					{localNotes.map(note => (
-						<div key={note.id} className="flex gap-4 p-2 pr-10 border-b border-border bg-card hover:bg-accent cursor-pointer relative" onClick={() => seekToNote(note)}>
-							<div className="flex flex-col min-w-[8rem] flex-shrink-0">
-								<div className={`mb-3 text-muted-foreground transition-colors duration-300 ${clickedNoteId === note.id ? 'text-primary font-bold' : ''}`}>
-									{timeFormat(note.time)}
-								</div>
-								<div className="text-muted-foreground text-sm truncate">
-									{formatPath(note.path)}
-								</div>
-							</div>
-							<div className="flex-grow text-foreground">
-								{note.note}
-							</div>
-							<button onClick={(e) => removeNote(e, note)} className="absolute right-2 top-2 bg-transparent border-none text-muted-foreground hover:text-foreground">×</button>
-						</div>
-					))}
+					{notesList.length ? notesList : <div className="text-center text-muted-foreground">No notes</div>}
 				</div>
 			</div>
 		</div>
@@ -126,7 +133,7 @@ export const BottomBar = observer(({ store }) => {
 	const addNote = async () => {
 		const note = prompt('Enter note:')
 		if (!note) return
-		const { time } = playerStore
+		const time = playerStore.getProgress()
 		const path = currentFile.path.join('/')
 		await storage.addNote(ih, path, time, note)
 	}
@@ -191,6 +198,7 @@ export const BottomBar = observer(({ store }) => {
 		}
 	}
 
+	console.log(notes)
 	return (
 		<>
 			<Button onClick={nextRate} variant="ghost" className="w-12" > {`x${rate}`} </Button>
@@ -222,7 +230,7 @@ export const BottomBar = observer(({ store }) => {
 					Copied infohash
 				</div>
 			</Button>
-			{notes && <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} />}
+		{ notes === null ? null : <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} /> }
 		</>
 	)
 })
