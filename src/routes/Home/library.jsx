@@ -6,7 +6,7 @@ import { getAvailableTorrents } from '~/routes/Playlist/api'
 const recentBooksNumber = 2
 export const Library = observer(({ store }) => {
 	const renderBook = ({ info, ih, state }, i) => {
-		const name = info['name.utf-8'] || info['name']
+		const name = info['name.utf-8'] || info.name
 		return (
 			<Link key={i} to={`/playlist/${ih}`}>
 				<div className='flex justify-between my-3 cursor-pointer'>
@@ -70,6 +70,11 @@ export const AvailableBooks = () => {
 		}
 	}
 
+	const hideBooks = () => {
+		setIsVisible(false)
+		setBooks([])
+	}
+
 	return (
 		<div className="p-4">
 			{!isVisible ? (
@@ -77,12 +82,22 @@ export const AvailableBooks = () => {
 					className="mt-2 p-2 text-sm underline opacity-30 hover:opacity-100 transition-opacity duration-200 disabled:cursor-not-allowed"
 					onClick={fetchBooks}
 					disabled={isLoading}
+					type="button"
 				>
 					{isLoading ? 'Loading...' : 'Show books available on server'}
 				</button>
 			) : (
 				<>
-					<h2 className="text-xl font-bold">Available Books</h2>
+					<div className="flex justify-between items-center">
+						<h2 className="text-xl font-bold">Available Books</h2>
+						<button
+							onClick={hideBooks}
+							className="text-sm underline opacity-30 hover:opacity-100 transition-opacity duration-200"
+							type="button"
+						>
+							Hide books
+						</button>
+					</div>
 					<div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4 mt-4">
 						{books.length === 0 ? (
 							<div className='my-3 text-gray-500'>No books available on server</div>
@@ -93,7 +108,7 @@ export const AvailableBooks = () => {
 									href={`/playlist/${book.infoHash}`}
 								>
 									<div className="p-4 rounded-lg cursor-pointer bg-[var(--bg-elevated)] hover:-translate-y-0.5 transition-transform duration-200">
-										<div className="font-medium mb-2">{book.name}</div>
+										<div className="font-medium mb-2 break-words">{book.name}</div>
 										<div className="text-sm text-[var(--text-secondary)] flex justify-between">
 											<span>Last requested: {book.lastSeen.toLocaleDateString()}</span>
 										</div>
