@@ -89,7 +89,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 			const hiddenFiles = new Set() // Track files that were combined
 
 			// First pass: process combined files and collect hidden files
-			for (let file of files) {
+			for (const file of files) {
 				const pathParts = file.path.split('/')
 				if (pathParts[0] === COMBINED_FILES_PREFIX) {
 					const [startIdx, endIdx] = pathParts[1].split('-').map(Number)
@@ -121,7 +121,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 			}
 
 			// Add files from torrent metadata that weren't combined or stored
-			for (let file of store.torrentInfo.files) {
+			for (const file of store.torrentInfo.files) {
 				const filePath = file.path.join('/')
 				if (!storedPath[filePath] && !hiddenFiles.has(filePath)) {
 					allFiles.push(file)
@@ -143,11 +143,11 @@ export const useBookStore = ({ ih, playerStore }) => {
 			})
 			// Start play
 			if (state) {
-				files.forEach((file) => {
+				for (const file of files) {
 					if (comparePath(file.path, state.path)) {
 						store.continueLastPlayed(file, state)
 					}
-				})
+				}
 			}
 		},
 
@@ -340,7 +340,7 @@ export const useBookStore = ({ ih, playerStore }) => {
 	React.useEffect(() => {
 		const interval = setInterval(store.saveCurrentPlaying, 3000)
 		return () => clearInterval(interval)
-	}, [ih, store])
+	}, [store])
 
 
 	return store
@@ -359,7 +359,8 @@ function isMP3(buffer) {
 
 	return false
 }
-
+// NOTE this is exerimental feature to try to connect tiny MP3 files, it would not work properly in most cases.
+// Using standart API leads to poor performance, so we stuck with manual file concatenation. Maybe find more optimal solution.
 async function concatMP3Blobs(blobs) {
 	if (!blobs || blobs.length === 0) {
 		return new Blob([], { type: 'audio/mpeg' }); // Return an empty MP3 blob if no blobs are provided
@@ -400,3 +401,4 @@ async function concatMP3Blobs(blobs) {
 	// Create a new Blob from the combined buffer
 	return new Blob([combinedBuffer], { type: 'audio/mpeg' });
 }
+
