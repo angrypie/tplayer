@@ -360,7 +360,8 @@ function isMP3(buffer) {
 	return false
 }
 // NOTE this is exerimental feature to try to connect tiny MP3 files, it would not work properly in most cases.
-// Using standart API leads to poor performance, so we stuck with manual file concatenation. Maybe find more optimal solution.
+// Using standart API leads to poor performance, so we stuck with manual file concatenation.
+// Maybe find more optimal solution like using ffmpeg.wasm
 async function concatMP3Blobs(blobs) {
 	if (!blobs || blobs.length === 0) {
 		return new Blob([], { type: 'audio/mpeg' }); // Return an empty MP3 blob if no blobs are provided
