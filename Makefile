@@ -14,7 +14,7 @@ dev-frontend:
 	bun run dev
 
 dev-backend:
-	go run ./server
+	go run ./tplayer
 
 #if frontend have no changes there is no need to rebuild it, only go build needed (restore)
 snapshot: prod

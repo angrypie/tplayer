@@ -2,16 +2,29 @@ import React from 'react'
 import { observer } from 'mobx-react-lite'
 import { Link } from 'wouter'
 import { deleteAvailableTorrent, getAvailableTorrents } from '~/routes/Playlist/api'
+import { CoverImage } from '~/components/CoverImage'
 
 const recentBooksNumber = 2
+
 export const Library = observer(({ store }) => {
 	const renderBook = ({ info, ih, state }, i) => {
 		const name = info['name.utf-8'] || info.name
 		return (
 			<Link key={i} to={`/playlist/${ih}`}>
-				<div className='flex justify-between my-3 cursor-pointer'>
-					<div className='truncate w-4/5'>{name}</div>
-					<BookState state={state} />
+				<div className='flex gap-3 items-center my-3 cursor-pointer'>
+					<CoverImage
+						ih={ih}
+						files={info.files || []}
+						name={name}
+						className='w-16 h-16'
+						placeholderClassName='text-[10px] text-[var(--text-secondary)]'
+						loadingLabel='Loading...'
+						emptyLabel='No cover'
+					/>
+					<div className='flex-1 flex items-center justify-between gap-3'>
+						<div className='truncate w-4/5'>{name}</div>
+						<BookState state={state} />
+					</div>
 				</div>
 			</Link>
 		)

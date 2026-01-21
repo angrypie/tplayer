@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react'
 import { formatBytes } from './utils'
 import { observer } from 'mobx-react-lite'
 import { comparePath } from '~/utils'
-import { storage } from '~/storage'
+import { CoverImage } from '~/components/CoverImage'
 import natsort from 'natsort'
 import { COMBINED_FILES_PREFIX } from './store'
+
+const COVER_VISIBILITY_KEY = 'tplayer:cover-visible'
 
 const getLabel = (file) => {
 	if (file.state === 'loading') {
@@ -38,10 +40,18 @@ const loadAndSortFiles = async (store, ih) => {
 	return files
 }
 
+
 export const TorrentInfo = observer(({ store }) => {
 	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile } = store
 	const f = torrentInfo.files
 	const [allFiles, setAllFiles] = useState([])
+	const [showCover, setShowCover] = useState(() => {
+		if (typeof window === 'undefined') {
+			return true
+		}
+		const stored = window.localStorage.getItem(COVER_VISIBILITY_KEY)
+		return stored ? stored === 'true' : true
+	})
 
 	useEffect(() => {
 		setTorrentInfo(ih)
@@ -56,6 +66,10 @@ export const TorrentInfo = observer(({ store }) => {
 		updateFiles()
 	}, [ih, store.torrentInfo])
 
+	useEffect(() => {
+		window.localStorage.setItem(COVER_VISIBILITY_KEY, String(showCover))
+	}, [showCover])
+
 	const handleDelete = async (file) => {
 		const success = await store.removeFile(ih, file)
 		if (success) {
@@ -69,8 +83,33 @@ export const TorrentInfo = observer(({ store }) => {
 
 	return (
 		<div className='flex flex-col h-full'>
-			<div className='font-bold text-lg'>
-				{torrentInfo.name}
+			<div className='flex items-start gap-4'>
+				<div className='flex-1'>
+					<div className='font-bold text-lg'>
+						{torrentInfo.name}
+					</div>
+				</div>
+				<div className='flex flex-col items-end gap-2'>
+					<button
+						onClick={() => setShowCover((prev) => !prev)}
+						className='text-[10px] uppercase tracking-wide text-[var(--text-secondary)] opacity-60 hover:opacity-100 transition-opacity'
+						type='button'
+					>
+						{showCover ? 'Hide cover' : 'Show cover'}
+					</button>
+					{showCover && (
+						<CoverImage
+							ih={ih}
+							files={allFiles}
+							name={torrentInfo.name}
+							normalizePathParts={stripCombinedPrefix}
+							className='w-28 h-28'
+							placeholderClassName='text-xs text-[var(--text-secondary)]'
+							loadingLabel='Loading cover...'
+							emptyLabel='No cover'
+						/>
+					)}
+				</div>
 			</div>
 			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y'>
 				<div>

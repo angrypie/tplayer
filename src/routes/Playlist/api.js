@@ -39,6 +39,27 @@ export async function getAudio(ih, pathArr) {
 	}
 }
 
+export async function getFileUrl(ih, pathArr) {
+	try {
+		const path = pathArr.join('/')
+		const file = await storage.getFile(ih, path)
+		if (file !== null) {
+			return URL.createObjectURL(file.file)
+		}
+		const url = `/api/data?ih=${ih}&path=${encodeURIComponent(path)}`
+		const res = await fetch(url, { mode: 'cors' })
+		if (!res.ok) {
+			throw new Error(res.statusText)
+		}
+		const blob = await res.blob()
+		storage.addFile(ih, path, blob)
+		return URL.createObjectURL(blob)
+	} catch (err) {
+		console.error(err)
+		return null
+	}
+}
+
 async function transformTorrentInfo(ih, torrent, state) {
 	if (!torrent.files) {
 		const { length, name } = torrent
