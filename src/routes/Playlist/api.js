@@ -76,6 +76,23 @@ export async function getAvailableTorrents() {
 	}
 }
 
+export async function deleteAvailableTorrent(infoHash) {
+	try {
+		const response = await fetch(`/api/torrents/${encodeURIComponent(infoHash)}`, {
+			method: 'DELETE',
+			mode: 'cors',
+		});
+		if (!response.ok) {
+			const data = await response.json().catch(() => ({}));
+			throw new Error(data.error || `HTTP error! status: ${response.status}`);
+		}
+		return true;
+	} catch (error) {
+		console.error('Error deleting available torrent:', error);
+		return false;
+	}
+}
+
 export async function preloadTorrent(ih) {
 	try {
 		const url = `/api/preload?ih=${ih}`

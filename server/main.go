@@ -50,6 +50,7 @@ func main() {
 	defer historyDb.Close()
 
 	e.GET("/api/torrents", handleGetTorrents(historyDb))
+	e.DELETE("/api/torrents/:ih", handleDeleteTorrent(historyDb))
 	e.GET("/api/preload", handlePreload)
 
 	//run ./confluence command shell command in separate process
@@ -131,6 +132,36 @@ func handleGetTorrents(db *sql.DB) echo.HandlerFunc {
 		}
 
 		return c.JSON(200, torrents)
+	}
+}
+
+func handleDeleteTorrent(db *sql.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ih := c.Param("ih")
+		if ih == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "infohash is required"})
+		}
+
+		result, err := db.Exec(`
+			DELETE FROM torrent_history
+			WHERE info_hash = ?
+		`, ih)
+		if err != nil {
+			log.Printf("ERROR failed to delete torrent history: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		affected, err := result.RowsAffected()
+		if err != nil {
+			log.Printf("ERROR failed to read delete result: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		if affected == 0 {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "torrent not found"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 	}
 }
 

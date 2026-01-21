@@ -1,3 +1,5 @@
+build-frontend:
+	npm run build
 build-go:
 	cd server && go build -o ../tplayer
 

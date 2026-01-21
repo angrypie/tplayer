@@ -1,7 +1,7 @@
 import React from 'react'
 import { observer } from 'mobx-react-lite'
 import { Link } from 'wouter'
-import { getAvailableTorrents } from '~/routes/Playlist/api'
+import { deleteAvailableTorrent, getAvailableTorrents } from '~/routes/Playlist/api'
 
 const recentBooksNumber = 2
 export const Library = observer(({ store }) => {
@@ -70,6 +70,17 @@ export const AvailableBooks = () => {
 		}
 	}
 
+	const handleDelete = async (infoHash, name) => {
+		const confirmed = window.confirm(`Delete "${name}" from server?`)
+		if (!confirmed) {
+			return
+		}
+		const ok = await deleteAvailableTorrent(infoHash)
+		if (ok) {
+			setBooks(prevBooks => prevBooks.filter(book => book.infoHash !== infoHash))
+		}
+	}
+
 	const hideBooks = () => {
 		setIsVisible(false)
 		setBooks([])
@@ -102,19 +113,26 @@ export const AvailableBooks = () => {
 						{books.length === 0 ? (
 							<div className='my-3 text-gray-500'>No books available on server</div>
 						) : (
-							books.map(book => (
-								<Link
-									key={book.infoHash}
-									href={`/playlist/${book.infoHash}`}
-								>
-									<div className="p-4 rounded-lg cursor-pointer bg-[var(--bg-elevated)] hover:-translate-y-0.5 transition-transform duration-200">
+						books.map(book => (
+							<div key={book.infoHash} className="p-4 rounded-lg bg-[var(--bg-elevated)]">
+								<Link href={`/playlist/${book.infoHash}`}>
+									<div className="cursor-pointer hover:-translate-y-0.5 transition-transform duration-200">
 										<div className="font-medium mb-2 break-words">{book.name}</div>
 										<div className="text-sm text-[var(--text-secondary)] flex justify-between">
 											<span>Last requested: {book.lastSeen.toLocaleDateString()}</span>
 										</div>
 									</div>
 								</Link>
-							))
+								<button
+									onClick={() => handleDelete(book.infoHash, book.name)}
+									className="mt-3 text-sm underline opacity-40 hover:opacity-100 transition-opacity duration-200"
+									type="button"
+								>
+									Delete
+								</button>
+							</div>
+						))
+
 						)}
 					</div>
 				</>
