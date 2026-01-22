@@ -1,102 +1,106 @@
-import React from 'react'
-import { getFileUrl } from '~/routes/Playlist/api'
-import { selectCoverCandidates } from '~/utils'
+import React from "react";
+import { getFileUrl } from "~/routes/Playlist/api";
+import { selectCoverCandidates } from "~/utils";
 
-const DEFAULT_NORMALIZE_PATH = (pathParts) => pathParts
+const DEFAULT_NORMALIZE_PATH = (pathParts) => pathParts;
 
 export const CoverImage = ({
 	ih,
 	files = [],
-	name = '',
+	name = "",
 	normalizePathParts = DEFAULT_NORMALIZE_PATH,
-	className = 'w-16 h-16',
-	imgClassName = 'w-full h-full object-cover',
-	placeholderClassName = 'text-xs text-[var(--text-secondary)]',
-	loadingLabel = 'Loading cover...',
+	className = "w-16 h-16",
+	imgClassName = "w-full h-full object-cover",
+	placeholderClassName = "text-xs text-[var(--text-secondary)]",
+	loadingLabel = "Loading cover...",
 }) => {
-	const [coverCandidates, setCoverCandidates] = React.useState([])
-	const [coverUrl, setCoverUrl] = React.useState('')
-	const [coverIndex, setCoverIndex] = React.useState(0)
-	const [isCoverLoading, setIsCoverLoading] = React.useState(false)
+	const [coverCandidates, setCoverCandidates] = React.useState([]);
+	const [coverUrl, setCoverUrl] = React.useState("");
+	const [coverIndex, setCoverIndex] = React.useState(0);
+	const [isCoverLoading, setIsCoverLoading] = React.useState(false);
 
 	React.useEffect(() => {
 		const candidateList = selectCoverCandidates(
 			Array.isArray(files) ? files : [],
-			normalizePathParts
-		)
-		setCoverCandidates(candidateList)
-		setCoverUrl('')
-		setCoverIndex(0)
-		setIsCoverLoading(false)
-	}, [files, normalizePathParts, ih])
+			normalizePathParts,
+		);
+		setCoverCandidates(candidateList);
+		setCoverUrl("");
+		setCoverIndex(0);
+		setIsCoverLoading(false);
+	}, [files, normalizePathParts, ih]);
 
 	React.useEffect(() => {
 		if (!ih || coverCandidates.length === 0) {
-			return
+			return;
 		}
-		let isActive = true
-		setIsCoverLoading(true)
+		let isActive = true;
+		setIsCoverLoading(true);
 		const loadCover = async () => {
-			const candidate = coverCandidates[coverIndex]
+			const candidate = coverCandidates[coverIndex];
 			if (!candidate) {
-				setIsCoverLoading(false)
-				return
+				setIsCoverLoading(false);
+				return;
 			}
-			const url = await getFileUrl(ih, candidate.path)
+			const url = await getFileUrl(ih, candidate.path);
 			if (!isActive) {
-				return
+				return;
 			}
 			if (url) {
-				setCoverUrl(url)
-				setIsCoverLoading(false)
+				setCoverUrl(url);
+				setIsCoverLoading(false);
 			} else {
-				setCoverIndex((prev) => prev + 1)
+				setCoverIndex((prev) => prev + 1);
 			}
-		}
-		loadCover()
+		};
+		loadCover();
 		return () => {
-			isActive = false
-		}
-	}, [ih, coverCandidates, coverIndex])
+			isActive = false;
+		};
+	}, [ih, coverCandidates, coverIndex]);
 
 	React.useEffect(() => {
 		return () => {
 			if (coverUrl) {
-				URL.revokeObjectURL(coverUrl)
+				URL.revokeObjectURL(coverUrl);
 			}
-		}
-	}, [coverUrl])
+		};
+	}, [coverUrl]);
 
 	const containerClassName = [
-		'flex-shrink-0',
-		'rounded-lg',
-		'overflow-hidden',
-		'bg-[var(--bg-elevated)]',
-		'flex',
-		'items-center',
-		'justify-center',
+		"flex-shrink-0",
+		"rounded-lg",
+		"overflow-hidden",
+		"bg-[var(--bg-elevated)]",
+		"flex",
+		"items-center",
+		"justify-center",
 		className,
 	]
 		.filter(Boolean)
-		.join(' ')
+		.join(" ");
 
 	const placeholderContainerClassName = [
-		'w-full',
-		'h-full',
-		'bg-gradient-to-br',
-		'from-muted',
-		'via-background',
-		'to-secondary',
-		'flex',
-		'items-center',
-		'justify-center',
+		"w-full",
+		"h-full",
+		"bg-gradient-to-br",
+		"from-muted",
+		"via-background",
+		"to-secondary",
+		"flex",
+		"items-center",
+		"justify-center",
 	]
 		.filter(Boolean)
-		.join(' ')
+		.join(" ");
 
-	const placeholderLabelClassNames = ['text-center', 'px-1', placeholderClassName]
+	const placeholderLabelClassNames = [
+		"text-center",
+		"px-1",
+		placeholderClassName,
+	]
 		.filter(Boolean)
-		.join(' ')
+		.join(" ");
 
 	return (
 		<div className={containerClassName}>
@@ -105,7 +109,7 @@ export const CoverImage = ({
 					src={coverUrl}
 					alt={`${name} cover`}
 					className={imgClassName}
-					loading='lazy'
+					loading="lazy"
 					onError={() => setCoverIndex((prev) => prev + 1)}
 				/>
 			) : (
@@ -116,5 +120,5 @@ export const CoverImage = ({
 				</div>
 			)}
 		</div>
-	)
-}
+	);
+};

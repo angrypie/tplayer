@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { Nav } from '~/components/layout/Nav'
 import { ThemeToggle } from '~/components/theme-toggle'
 import { Search } from './Search'
 import { AvailableBooks, Library } from './library'
@@ -11,12 +12,12 @@ const Home = () => {
 	}, [store])
 	return (
 		<div className='flex flex-col h-screen'>
-			<div className='flex items-center gap-2 px-3 py-2'>
+			<Nav>
 				<div className='flex-1 min-w-0'>
 					<Search />
 				</div>
 				<ThemeToggle />
-			</div>
+			</Nav>
 			<div className='flex-1 overflow-auto mt-4'>
 				<Library store={store} />
 				<AvailableBooks />

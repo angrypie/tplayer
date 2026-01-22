@@ -2,6 +2,7 @@ import { observer } from "mobx-react-lite";
 import natsort from "natsort";
 import React, { useEffect, useState } from "react";
 import { CoverImage } from "~/components/CoverImage";
+import { Nav } from "~/components/layout/Nav";
 import { comparePath } from "~/utils";
 import { COMBINED_FILES_PREFIX } from "./store";
 import { formatBytes } from "./utils";
@@ -70,24 +71,22 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 
 	return (
 		<div className="flex flex-col h-full">
-			<div className="flex items-center gap-4">
+			<Nav>
 				<div className="flex-1">
-					<div className="font-bold text-lg">{torrentInfo.name}</div>
+					<div className="font-bold text-lg mt-2.5">{torrentInfo.name}</div>
 				</div>
-				<div className="flex flex-col items-end gap-2">
-					{showCover && (
-						<CoverImage
-							ih={ih}
-							files={allFiles}
-							name={torrentInfo.name}
-							normalizePathParts={stripCombinedPrefix}
-							className="w-28 h-28"
-							placeholderClassName="text-xs text-[var(--text-secondary)]"
-							loadingLabel="Loading cover..."
-						/>
-					)}
-				</div>
-			</div>
+				{showCover && (
+					<CoverImage
+						ih={ih}
+						files={allFiles}
+						name={torrentInfo.name}
+						normalizePathParts={stripCombinedPrefix}
+						className="w-28 h-28"
+						placeholderClassName="text-xs text-[var(--text-secondary)]"
+						loadingLabel="Loading cover..."
+					/>
+				)}
+			</Nav>
 			<div className="flex-1 overflow-auto mt-2.5 touch-pan-y">
 				<div>
 					{allFiles.map((file, i) => {
