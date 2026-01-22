@@ -19,7 +19,6 @@ export const Library = observer(({ store }) => {
 						className='w-16 h-16'
 						placeholderClassName='text-[10px] text-[var(--text-secondary)]'
 						loadingLabel='Loading...'
-						emptyLabel='No cover'
 					/>
 					<div className='flex-1 flex items-center justify-between gap-3'>
 						<div className='truncate w-4/5'>{name}</div>

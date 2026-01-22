@@ -1,180 +1,167 @@
-import React, { useEffect, useState } from 'react'
-import { formatBytes } from './utils'
-import { observer } from 'mobx-react-lite'
-import { comparePath } from '~/utils'
-import { CoverImage } from '~/components/CoverImage'
-import natsort from 'natsort'
-import { COMBINED_FILES_PREFIX } from './store'
-
-const COVER_VISIBILITY_KEY = 'tplayer:cover-visible'
+import { observer } from "mobx-react-lite";
+import natsort from "natsort";
+import React, { useEffect, useState } from "react";
+import { CoverImage } from "~/components/CoverImage";
+import { comparePath } from "~/utils";
+import { COMBINED_FILES_PREFIX } from "./store";
+import { formatBytes } from "./utils";
 
 const getLabel = (file) => {
-	if (file.state === 'loading') {
-		return 'loading'
+	if (file.state === "loading") {
+		return "loading";
 	}
 	if (file.cached) {
 		if (file.isCombined) {
-			const [start, end] = file.originalIndexes
-			return `Combined (${end - start + 1} files)`
+			const [start, end] = file.originalIndexes;
+			return `Combined (${end - start + 1} files)`;
 		}
-		return 'loaded'
+		return "loaded";
 	}
-	return formatBytes(file.length)
-}
+	return formatBytes(file.length);
+};
 
 const stripCombinedPrefix = (path) => {
 	if (path[0] === COMBINED_FILES_PREFIX) {
-		return path.slice(1)
+		return path.slice(1);
 	}
-	return path
-}
+	return path;
+};
 
 const loadAndSortFiles = async (store, ih) => {
-	if (!ih) return []
-	const files = await store.getAllTorrentFiles(ih)
+	if (!ih) return [];
+	const files = await store.getAllTorrentFiles(ih);
 	files.sort((a, b) => {
-		const aPath = stripCombinedPrefix(a.path).join('/')
-		const bPath = stripCombinedPrefix(b.path).join('/')
-		return natsort()(aPath, bPath)
-	})
-	return files
-}
+		const aPath = stripCombinedPrefix(a.path).join("/");
+		const bPath = stripCombinedPrefix(b.path).join("/");
+		return natsort()(aPath, bPath);
+	});
+	return files;
+};
 
-
-export const TorrentInfo = observer(({ store }) => {
-	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile } = store
-	const f = torrentInfo.files
-	const [allFiles, setAllFiles] = useState([])
-	const [showCover, setShowCover] = useState(() => {
-		if (typeof window === 'undefined') {
-			return true
-		}
-		const stored = window.localStorage.getItem(COVER_VISIBILITY_KEY)
-		return stored ? stored === 'true' : true
-	})
+export const TorrentInfo = observer(({ store, showCover }) => {
+	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile } =
+		store;
+	const f = torrentInfo.files;
+	const [allFiles, setAllFiles] = useState([]);
 
 	useEffect(() => {
-		setTorrentInfo(ih)
-	}, [ih, setTorrentInfo])
+		setTorrentInfo(ih);
+	}, [ih, setTorrentInfo]);
 
 	const updateFiles = async () => {
-		const files = await loadAndSortFiles(store, ih)
-		setAllFiles(files)
-	}
+		const files = await loadAndSortFiles(store, ih);
+		setAllFiles(files);
+	};
 
 	useEffect(() => {
-		updateFiles()
-	}, [ih, store.torrentInfo])
-
-	useEffect(() => {
-		window.localStorage.setItem(COVER_VISIBILITY_KEY, String(showCover))
-	}, [showCover])
+		updateFiles();
+	}, [ih, store.torrentInfo]);
 
 	const handleDelete = async (file) => {
-		const success = await store.removeFile(ih, file)
+		const success = await store.removeFile(ih, file);
 		if (success) {
-			updateFiles()
+			updateFiles();
 		}
-	}
+	};
 
 	const handleClick = (file) => {
-		setCurrentFile(file)
-	}
+		setCurrentFile(file);
+	};
 
 	return (
-		<div className='flex flex-col h-full'>
-			<div className='flex items-start gap-4'>
-				<div className='flex-1'>
-					<div className='font-bold text-lg'>
-						{torrentInfo.name}
-					</div>
+		<div className="flex flex-col h-full">
+			<div className="flex items-center gap-4">
+				<div className="flex-1">
+					<div className="font-bold text-lg">{torrentInfo.name}</div>
 				</div>
-				<div className='flex flex-col items-end gap-2'>
-					<button
-						onClick={() => setShowCover((prev) => !prev)}
-						className='text-[10px] uppercase tracking-wide text-[var(--text-secondary)] opacity-60 hover:opacity-100 transition-opacity'
-						type='button'
-					>
-						{showCover ? 'Hide cover' : 'Show cover'}
-					</button>
+				<div className="flex flex-col items-end gap-2">
 					{showCover && (
 						<CoverImage
 							ih={ih}
 							files={allFiles}
 							name={torrentInfo.name}
 							normalizePathParts={stripCombinedPrefix}
-							className='w-28 h-28'
-							placeholderClassName='text-xs text-[var(--text-secondary)]'
-							loadingLabel='Loading cover...'
-							emptyLabel='No cover'
+							className="w-28 h-28"
+							placeholderClassName="text-xs text-[var(--text-secondary)]"
+							loadingLabel="Loading cover..."
 						/>
 					)}
 				</div>
 			</div>
-			<div className='flex-1 overflow-auto mt-2.5 touch-pan-y'>
+			<div className="flex-1 overflow-auto mt-2.5 touch-pan-y">
 				<div>
 					{allFiles.map((file, i) => {
-						const { path } = file
-						const displayPath = stripCombinedPrefix(path).join('/')
-						const currentStyle = comparePath(path, currentFile.path) ? 'bg-gray-200' : ''
+						const { path } = file;
+						const displayPath = stripCombinedPrefix(path).join("/");
+						const currentStyle = comparePath(path, currentFile.path)
+							? "bg-gray-200"
+							: "";
 						return (
 							<div
-								key={path.join('/')}
+								key={path.join("/")}
 								className={`flex justify-between items-center p-2 cursor-pointer hover:bg-gray-100 ${currentStyle}`}
 								onClick={() => handleClick(file)}
 							>
-								<div className='truncate flex-1'>{displayPath}</div>
-								<div className='flex items-center'>
-									<div className='text-sm text-gray-500 mr-2'>
+								<div className="truncate flex-1">{displayPath}</div>
+								<div className="flex items-center">
+									<div className="text-sm text-gray-500 mr-2">
 										{getLabel(file)}
 									</div>
 									{file.cached && (
 										<button
 											onClick={(e) => {
-												e.stopPropagation()
-												handleDelete(file)
+												e.stopPropagation();
+												handleDelete(file);
 											}}
-											className='text-red-500 hover:text-red-700'
+											className="text-red-500 hover:text-red-700"
 										>
 											×
 										</button>
 									)}
 								</div>
 							</div>
-						)
+						);
 					})}
 					<CleanBookDataButtons store={store} allFiles={allFiles} />
 				</div>
 			</div>
 		</div>
-	)
-})
+	);
+});
 
 export const CleanBookDataButtons = observer(({ store, allFiles }) => {
-	const { torrentInfo, cleanBookData, removeBook, ih } = store
+	const { torrentInfo, cleanBookData, removeBook, ih } = store;
 	const cachedPartsLength = allFiles.reduce(
 		(total, { cached, length }) => (!cached ? total : total + length),
-		0
-	)
+		0,
+	);
 
 	const clean = () =>
-		window.confirm('Are you sure to delete all downloaded book parts?')
+		window.confirm("Are you sure to delete all downloaded book parts?")
 			? cleanBookData(ih)
-			: null
+			: null;
 
 	const remove = () =>
-		window.confirm('Are you sure to remove this book from library?')
-			? removeBook(ih).then((ok) => ok && window.history.pushState(null, null, '/'))
-			: null
+		window.confirm("Are you sure to remove this book from library?")
+			? removeBook(ih).then(
+					(ok) => ok && window.history.pushState(null, null, "/"),
+				)
+			: null;
 
 	return (
-		<div className='flex flex-col'>
-			<div onClick={clean} className='flex justify-center py-2 cursor-pointer text-[#2f37ff] font-medium text-sm opacity-50 active:opacity-100'>
+		<div className="flex flex-col">
+			<div
+				onClick={clean}
+				className="flex justify-center py-2 cursor-pointer text-[#2f37ff] font-medium text-sm opacity-50 active:opacity-100"
+			>
 				Clean book data ({formatBytes(cachedPartsLength)})
 			</div>
-			<div onClick={remove} className='flex justify-center py-2 cursor-pointer text-[#2f37ff] font-medium text-sm opacity-50 active:opacity-100'>
+			<div
+				onClick={remove}
+				className="flex justify-center py-2 cursor-pointer text-[#2f37ff] font-medium text-sm opacity-50 active:opacity-100"
+			>
 				Remove Book from Library
 			</div>
 		</div>
-	)
-})
+	);
+});

@@ -13,7 +13,6 @@ export const CoverImage = ({
 	imgClassName = 'w-full h-full object-cover',
 	placeholderClassName = 'text-xs text-[var(--text-secondary)]',
 	loadingLabel = 'Loading cover...',
-	emptyLabel = 'No cover',
 }) => {
 	const [coverCandidates, setCoverCandidates] = React.useState([])
 	const [coverUrl, setCoverUrl] = React.useState('')
@@ -69,6 +68,7 @@ export const CoverImage = ({
 	}, [coverUrl])
 
 	const containerClassName = [
+		'flex-shrink-0',
 		'rounded-lg',
 		'overflow-hidden',
 		'bg-[var(--bg-elevated)]',
@@ -80,7 +80,21 @@ export const CoverImage = ({
 		.filter(Boolean)
 		.join(' ')
 
-	const placeholderClassNames = ['text-center', 'px-1', placeholderClassName]
+	const placeholderContainerClassName = [
+		'w-full',
+		'h-full',
+		'bg-gradient-to-br',
+		'from-muted',
+		'via-background',
+		'to-secondary',
+		'flex',
+		'items-center',
+		'justify-center',
+	]
+		.filter(Boolean)
+		.join(' ')
+
+	const placeholderLabelClassNames = ['text-center', 'px-1', placeholderClassName]
 		.filter(Boolean)
 		.join(' ')
 
@@ -95,9 +109,11 @@ export const CoverImage = ({
 					onError={() => setCoverIndex((prev) => prev + 1)}
 				/>
 			) : (
-				<span className={placeholderClassNames}>
-					{isCoverLoading ? loadingLabel : emptyLabel}
-				</span>
+				<div className={placeholderContainerClassName}>
+					{isCoverLoading && loadingLabel ? (
+						<span className={placeholderLabelClassNames}>{loadingLabel}</span>
+					) : null}
+				</div>
 			)}
 		</div>
 	)

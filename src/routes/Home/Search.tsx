@@ -34,7 +34,7 @@ export const Search: React.FC = () => {
 	}
 
 	return (
-		<div className='flex items-center gap-2 mx-3 h-12'>
+		<div className='flex items-center gap-2 h-12 w-full'>
 			<Input
 				type='text'
 				ref={searchRef}
