@@ -1,8 +1,10 @@
+import { X } from "lucide-react";
 import { observer } from "mobx-react-lite";
 import natsort from "natsort";
 import React, { useEffect, useState } from "react";
 import { CoverImage } from "~/components/CoverImage";
 import { Nav } from "~/components/layout/Nav";
+import { Button } from "~/components/ui/button";
 import { comparePath } from "~/utils";
 import { COMBINED_FILES_PREFIX } from "./store";
 import { formatBytes } from "./utils";
@@ -107,15 +109,18 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 										{getLabel(file)}
 									</div>
 									{file.cached && (
-										<button
+										<Button
+											variant="ghost"
+											size="icon"
 											onClick={(e) => {
 												e.stopPropagation();
 												handleDelete(file);
 											}}
-											className="text-red-500 hover:text-red-700"
+											className="text-red-500 hover:text-red-700 hover:bg-red-50"
+											title="Delete"
 										>
-											×
-										</button>
+											<X className="h-4 w-4" />
+										</Button>
 									)}
 								</div>
 							</div>

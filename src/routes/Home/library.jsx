@@ -1,6 +1,7 @@
 import React from 'react'
 import { observer } from 'mobx-react-lite'
 import { Link } from 'wouter'
+import { Button } from '~/components/ui/button'
 import { deleteAvailableTorrent, getAvailableTorrents } from '~/routes/Playlist/api'
 import { CoverImage } from '~/components/CoverImage'
 
@@ -101,25 +102,27 @@ export const AvailableBooks = () => {
 	return (
 		<div className="p-4">
 			{!isVisible ? (
-				<button
-					className="mt-2 p-2 text-sm underline opacity-30 hover:opacity-100 transition-opacity duration-200 disabled:cursor-not-allowed"
+				<Button
+					variant="link"
+					size="sm"
+					className="mt-2 p-2 opacity-30 hover:opacity-100 transition-opacity duration-200 disabled:cursor-not-allowed underline underline-offset-4"
 					onClick={fetchBooks}
 					disabled={isLoading}
-					type="button"
 				>
 					{isLoading ? 'Loading...' : 'Show books available on server'}
-				</button>
+				</Button>
 			) : (
 				<>
 					<div className="flex justify-between items-center">
 						<h2 className="text-xl font-bold">Available Books</h2>
-						<button
+						<Button
+							variant="link"
+							size="sm"
+							className="opacity-30 hover:opacity-100 transition-opacity duration-200 underline underline-offset-4"
 							onClick={hideBooks}
-							className="text-sm underline opacity-30 hover:opacity-100 transition-opacity duration-200"
-							type="button"
 						>
 							Hide books
-						</button>
+						</Button>
 					</div>
 					<div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4 mt-4">
 						{books.length === 0 ? (
@@ -135,13 +138,14 @@ export const AvailableBooks = () => {
 										</div>
 									</div>
 								</Link>
-								<button
+								<Button
+									variant="link"
+									size="sm"
+									className="mt-3 opacity-40 hover:opacity-100 transition-opacity duration-200"
 									onClick={() => handleDelete(book.infoHash, book.name)}
-									className="mt-3 text-sm underline opacity-40 hover:opacity-100 transition-opacity duration-200"
-									type="button"
 								>
 									Delete
-								</button>
+								</Button>
 							</div>
 						))
 
