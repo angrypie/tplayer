@@ -1,0 +1,9 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+	<title>TPlayer</title>
+	<rect fill="#0f172a" height="512" rx="112" width="512" />
+	<circle cx="256" cy="256" fill="#f8fafc" r="152" />
+	<path
+		d="M220 171c0-14 16-22 28-14l127 85c10 7 10 21 0 28l-127 85c-12 8-28 0-28-14V171Z"
+		fill="#2563eb"
+	/>
+</svg>

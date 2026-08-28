@@ -1,22 +1,33 @@
-import React from 'react'
-import { rewindStep } from './store'
 import { observer } from 'mobx-react-lite'
+import { rewindStep } from './store'
 
 export const PlayButtons = observer(({ store }) => {
 	const { playing, togglePlaying, getProgress } = store
 	const seekForward = () => store.seekTo(getProgress() + rewindStep)
 	const seekBackward = () => store.seekTo(getProgress() - rewindStep)
 	return (
-		<div className='flex justify-around items-center'>
-			<div className='text-2xl font-semibold cursor-pointer' onClick={seekBackward}>
+		<div className='flex items-center justify-around'>
+			<button
+				className='cursor-pointer border-0 bg-transparent p-0 font-semibold text-2xl'
+				onClick={seekBackward}
+				type='button'
+			>
 				back
-			</div>
-			<div className='text-3xl font-bold cursor-pointer' onClick={togglePlaying}>
+			</button>
+			<button
+				className='cursor-pointer border-0 bg-transparent p-0 font-bold text-3xl'
+				onClick={togglePlaying}
+				type='button'
+			>
 				{playing ? 'Stop' : 'Play'}
-			</div>
-			<div className='text-2xl font-semibold cursor-pointer' onClick={seekForward}>
+			</button>
+			<button
+				className='cursor-pointer border-0 bg-transparent p-0 font-semibold text-2xl'
+				onClick={seekForward}
+				type='button'
+			>
 				forth
-			</div>
+			</button>
 		</div>
 	)
 })

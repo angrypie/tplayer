@@ -1,19 +1,20 @@
-import { Moon, Sun } from "lucide-react"
-import { Button } from "~/components/ui/button"
-import { useTheme } from "~/components/theme-provider"
+import { Moon, Sun } from 'lucide-react'
+import { useCallback } from 'react'
+import { useTheme } from '~/components/theme-provider'
+import { Button } from '~/components/ui/button'
 
-type ThemeToggleProps = {
+interface ThemeToggleProps {
 	className?: string
 }
 
 const getResolvedTheme = (theme: string) => {
-	if (theme === "system") {
-		if (typeof window === "undefined") {
-			return "light"
+	if (theme === 'system') {
+		if (typeof window === 'undefined') {
+			return 'light'
 		}
-		return window.matchMedia("(prefers-color-scheme: dark)").matches
-			? "dark"
-			: "light"
+		return window.matchMedia('(prefers-color-scheme: dark)').matches
+			? 'dark'
+			: 'light'
 	}
 	return theme
 }
@@ -21,22 +22,22 @@ const getResolvedTheme = (theme: string) => {
 export function ThemeToggle({ className }: ThemeToggleProps) {
 	const { theme, setTheme } = useTheme()
 	const resolvedTheme = getResolvedTheme(theme)
-	const isDark = resolvedTheme === "dark"
+	const isDark = resolvedTheme === 'dark'
 
-	const handleToggle = () => {
-		setTheme(isDark ? "light" : "dark")
-	}
+	const handleToggle = useCallback(() => {
+		setTheme(isDark ? 'light' : 'dark')
+	}, [isDark, setTheme])
 
 	return (
 		<Button
-			variant="outline"
-			size="icon"
-			onClick={handleToggle}
+			aria-label='Toggle theme'
 			className={className}
-			type="button"
-			aria-label="Toggle theme"
+			onClick={handleToggle}
+			size='icon'
+			type='button'
+			variant='outline'
 		>
-			{isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+			{isDark ? <Sun className='h-4 w-4' /> : <Moon className='h-4 w-4' />}
 		</Button>
 	)
 }

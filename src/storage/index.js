@@ -2,9 +2,9 @@ import Dexie from 'dexie'
 
 const db = new Dexie('books')
 db.version(2).stores({
-	torrents: `ih`,
-	files: `[ih+path]`,
-	notes: `++id, ih`, //notes attached to specific file
+	files: '[ih+path]',
+	notes: '++id, ih', //notes attached to specific file
+	torrents: 'ih',
 })
 
 async function addTorrent(ih, info) {
@@ -16,10 +16,7 @@ async function addTorrent(ih, info) {
 }
 
 async function getTorrent(ih) {
-	const torrent = await db.torrents
-		.where('ih')
-		.equals(ih)
-		.first()
+	const torrent = await db.torrents.where('ih').equals(ih).first()
 	if (torrent === undefined) {
 		return null
 	}
@@ -42,9 +39,9 @@ async function getTorrents(limit = 5) {
 
 async function addFile(ih, path, file) {
 	await db.files.add({
+		file,
 		ih,
 		path,
-		file,
 	})
 }
 
@@ -67,7 +64,8 @@ async function removeFile(ih, path) {
 		await db.files.where({ ih, path }).delete()
 		return true
 	} catch (err) {
-		alert('removing file error: ' + JSON.stringify(err))
+		// biome-ignore lint/suspicious/noAlert: Keep the existing user-facing storage error without adding a notification system.
+		alert(`removing file error: ${JSON.stringify(err)}`)
 		return false
 	}
 }
@@ -77,7 +75,8 @@ async function removeFilesByIh(ih) {
 		await db.files.where('ih').equals(ih).delete()
 		return true
 	} catch (err) {
-		alert('removing file error: ' + JSON.stringify(err))
+		// biome-ignore lint/suspicious/noAlert: Keep the existing user-facing storage error without adding a notification system.
+		alert(`removing file error: ${JSON.stringify(err)}`)
 		return false
 	}
 }
@@ -88,7 +87,8 @@ async function removeFilesAndTorrent(ih) {
 		await db.torrents.where('ih').equals(ih).delete()
 		return true
 	} catch (err) {
-		alert('removing files and torernt error: ' + JSON.stringify(err))
+		// biome-ignore lint/suspicious/noAlert: Keep the existing user-facing storage error without adding a notification system.
+		alert(`removing files and torrent error: ${JSON.stringify(err)}`)
 		return false
 	}
 }
@@ -102,7 +102,7 @@ async function updateTorrent(ih, data) {
 }
 
 async function addNote(ih, path, time, note) {
-	await db.notes.add({ ih, path, time, note });
+	await db.notes.add({ ih, note, path, time })
 }
 
 async function getNote(id) {
@@ -111,29 +111,27 @@ async function getNote(id) {
 }
 
 async function getAllNotes(ih) {
-	const allNotes = await db.notes.where('ih').equals(ih).toArray();
-	return allNotes;
+	const allNotes = await db.notes.where('ih').equals(ih).toArray()
+	return allNotes
 }
-
 
 async function removeNote(id) {
 	await db.notes.where({ id }).delete()
 }
 
-
 export const storage = {
-	addTorrent,
-	getTorrent,
 	addFile,
-	getFile,
-	removeFile,
-	removeFilesByIh,
-	removeFilesAndTorrent,
-	getTorrents,
-	updateTorrent,
 	addNote,
-	getNote,
+	addTorrent,
+	getAllFilesForTorrent,
 	getAllNotes,
+	getFile,
+	getNote,
+	getTorrent,
+	getTorrents,
+	removeFile,
+	removeFilesAndTorrent,
+	removeFilesByIh,
 	removeNote,
-	getAllFilesForTorrent
+	updateTorrent,
 }

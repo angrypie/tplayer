@@ -1,15 +1,18 @@
-import React, { useRef, KeyboardEvent } from 'react'
+import { ClipboardPaste } from 'lucide-react'
+import type React from 'react'
+import { type ChangeEvent, type KeyboardEvent, useState } from 'react'
 import { useLocation } from 'wouter'
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
-import { ClipboardPaste } from 'lucide-react'
+
+const INFO_HASH_PATTERN = /^[a-f0-9]{40}$/i
+const MAGNET_INFO_HASH_PATTERN = /^urn:btih:([a-f0-9]{40})$/i
 
 export const Search: React.FC = () => {
-	const searchRef = useRef<HTMLInputElement>(null)
+	const [query, setQuery] = useState('')
 	const [, setLocation] = useLocation()
 
 	const searchBook = (): void => {
-		const query = searchRef.current?.value || ''
 		const infoHash = extractInfoHash(query)
 		if (infoHash) {
 			setLocation(`/playlist/${infoHash}`)
@@ -19,12 +22,14 @@ export const Search: React.FC = () => {
 	const handlePaste = async (): Promise<void> => {
 		try {
 			const text = await navigator.clipboard.readText()
-			if (searchRef.current) {
-				searchRef.current.value = text
-			}
+			setQuery(text)
 		} catch (err) {
 			console.error('Failed to read clipboard:', err)
 		}
+	}
+
+	const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
+		setQuery(event.currentTarget.value)
 	}
 
 	const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -34,16 +39,21 @@ export const Search: React.FC = () => {
 	}
 
 	return (
-		<div className='flex items-center gap-2 h-12 w-full'>
+		<div className='flex h-12 w-full items-center gap-2'>
 			<Input
-				type='text'
-				ref={searchRef}
-				placeholder='magnet link or info hash'
-				className='flex-1 min-w-0'
+				className='min-w-0 flex-1'
+				onChange={handleChange}
 				onKeyDown={handleKeyDown}
+				placeholder='magnet link or info hash'
+				type='text'
+				value={query}
 			/>
-			<Button className='h-10 whitespace-nowrap' variant='outline' onClick={handlePaste}>
-				<ClipboardPaste className="h-4 w-4" />
+			<Button
+				className='h-10 whitespace-nowrap'
+				onClick={handlePaste}
+				variant='outline'
+			>
+				<ClipboardPaste className='h-4 w-4' />
 			</Button>
 			<Button className='h-10 whitespace-nowrap' onClick={searchBook}>
 				search
@@ -53,25 +63,31 @@ export const Search: React.FC = () => {
 }
 
 function extractInfoHash(input: string): string | null {
-	if (!input) return null
-	input = input.trim()
+	if (!input) {
+		return null
+	}
+	const normalizedInput = input.trim()
 
 	// Direct info hash (40 hex characters)
-	if (/^[a-f0-9]{40}$/i.test(input)) {
-		return input
+	if (INFO_HASH_PATTERN.test(normalizedInput)) {
+		return normalizedInput
 	}
 
 	// Magnet URI format
 	try {
-		const url = new URL(input)
-		if (url.protocol !== 'magnet:') return null
+		const url = new URL(normalizedInput)
+		if (url.protocol !== 'magnet:') {
+			return null
+		}
 
 		// Get xt parameter
 		const xt = url.searchParams.get('xt')
-		if (!xt) return null
+		if (!xt) {
+			return null
+		}
 
 		// Extract info hash from xt parameter
-		const matches = xt.match(/^urn:btih:([a-f0-9]{40})$/i)
+		const matches = xt.match(MAGNET_INFO_HASH_PATTERN)
 		return matches ? matches[1] : null
 	} catch {
 		return null

@@ -21,11 +21,10 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-		"allowJs": true,
-		"baseUrl": ".",
-			"paths": {
-				"~/*": ["./src/*"]
-		}
+    "allowJs": true,
+    "paths": {
+      "~/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tplayer.angrypie.dev/schemas/cloudflare-desired-state.json",
+  "title": "TPlayer Cloudflare desired state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "accountId",
+    "zoneId",
+    "zoneName",
+    "tunnel",
+    "dns",
+    "access",
+    "health"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "accountId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "zoneId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "zoneName": { "type": "string", "minLength": 1 },
+    "tunnel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "hostname", "service"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1 },
+        "hostname": { "type": "string", "minLength": 1 },
+        "service": { "type": "string", "pattern": "^https?://" }
+      }
+    },
+    "dns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "name", "content", "proxied", "ttl", "comment"],
+      "properties": {
+        "type": { "const": "CNAME" },
+        "name": { "type": "string", "minLength": 1 },
+        "content": { "type": "string", "minLength": 1 },
+        "proxied": { "type": "boolean" },
+        "ttl": { "type": "integer", "minimum": 1 },
+        "comment": { "type": "string" }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "applicationName",
+        "sessionDuration",
+        "managedTag",
+        "policyName",
+        "emailEnvironmentVariable",
+        "emailDomainEnvironmentVariable"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "applicationName": { "type": "string", "minLength": 1 },
+        "sessionDuration": { "type": "string", "pattern": "^[0-9]+[smh]$" },
+        "managedTag": { "type": "string", "minLength": 1 },
+        "policyName": { "type": "string", "minLength": 1 },
+        "emailEnvironmentVariable": { "type": "string", "minLength": 1 },
+        "emailDomainEnvironmentVariable": { "type": "string", "minLength": 1 }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["originUrl", "publicUrl", "apiPath", "expectAccessRedirect"],
+      "properties": {
+        "originUrl": { "type": "string", "format": "uri" },
+        "publicUrl": { "type": "string", "format": "uri" },
+        "apiPath": { "type": "string", "pattern": "^/" },
+        "expectAccessRedirect": { "type": "boolean" }
+      }
+    }
+  }
+}

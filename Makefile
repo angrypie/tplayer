@@ -1,4 +1,4 @@
-.PHONY: all run-with-deps build build-frontend build-backend run run-dev dev-frontend snapshot restore install-deps install-go-deps clean help
+.PHONY: all run-with-deps build prod build-frontend build-backend run run-dev dev-frontend snapshot restore install-deps install-go-deps clean help
 
 # Variables
 GO_BINARY := tplayer
@@ -14,6 +14,8 @@ run-with-deps: install-deps run
 
 # Build targets
 build: build-backend
+
+prod: build-backend
 
 build-frontend:
 	@echo "Building frontend..."
@@ -76,6 +78,7 @@ clean:
 help:
 	@echo "Available targets:"
 	@echo "  build            - Build frontend and backend"
+	@echo "  prod             - Build the production frontend and backend bundle"
 	@echo "  run-with-deps    - Build and run the application (with dependencies installed)"
 	@echo "  build-frontend   - Build frontend only"
 	@echo "  build-backend         - Build Go backend only"

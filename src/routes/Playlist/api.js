@@ -1,5 +1,30 @@
-import { storage } from '~/storage'
 import bencode from 'bencode'
+import { storage } from '~/storage'
+
+const textDecoder = new TextDecoder()
+
+const decodeTextValues = (value) => {
+	if (value instanceof Uint8Array) {
+		return textDecoder.decode(value)
+	}
+	if (Array.isArray(value)) {
+		return value.map(decodeTextValues)
+	}
+	if (value !== null && typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, entry]) => [
+				key,
+				decodeTextValues(entry),
+			])
+		)
+	}
+	return value
+}
+
+export const decodeTorrentInfo = (data) => {
+	const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+	return decodeTextValues(bencode.decode(bytes))
+}
 
 export async function getTorrentInfo(ih) {
 	const torrent = await storage.getTorrent(ih)
@@ -9,8 +34,8 @@ export async function getTorrentInfo(ih) {
 	const url = `/api/info?ih=${ih}`
 	const res = await fetch(url, { mode: 'cors' })
 	const body = await res.arrayBuffer()
-	const info = bencode.decode(body, 'utf-8')
-	storage.addTorrent(ih, info)
+	const info = decodeTorrentInfo(body)
+	await storage.addTorrent(ih, info)
 	return await transformTorrentInfo(ih, info)
 }
 
@@ -31,7 +56,7 @@ export async function getAudio(ih, pathArr) {
 		const array = new Uint8Array(buf)
 		const blob = new Blob([array], { type: 'audio/mpeg' })
 
-		storage.addFile(ih, path, blob)
+		await storage.addFile(ih, path, blob)
 		return URL.createObjectURL(blob)
 	} catch (err) {
 		console.error(err)
@@ -52,7 +77,7 @@ export async function getFileUrl(ih, pathArr) {
 			throw new Error(res.statusText)
 		}
 		const blob = await res.blob()
-		storage.addFile(ih, path, blob)
+		await storage.addFile(ih, path, blob)
 		return URL.createObjectURL(blob)
 	} catch (err) {
 		console.error(err)
@@ -63,54 +88,59 @@ export async function getFileUrl(ih, pathArr) {
 async function transformTorrentInfo(ih, torrent, state) {
 	if (!torrent.files) {
 		const { length, name } = torrent
-		torrent.files = [{ name, length, path: [name] }]
+		torrent.files = [{ length, name, path: [name] }]
 	}
-	for (const file of torrent.files) {
-		const cached = await storage.getFile(ih, file.path.join('/'))
-		file.cached = cached !== null
-		file.state = 'ready'
-	}
+	await Promise.all(
+		torrent.files.map(async (file) => {
+			const cached = await storage.getFile(ih, file.path.join('/'))
+			file.cached = cached !== null
+			file.state = 'ready'
+		})
+	)
 	return { ...torrent, state }
 }
 
 export async function getAvailableTorrents() {
 	try {
-		const response = await fetch('/api/torrents', { mode: 'cors' });
+		const response = await fetch('/api/torrents', { mode: 'cors' })
 		if (!response.ok) {
-			throw new Error(`HTTP error! status: ${response.status}`);
+			throw new Error(`HTTP error! status: ${response.status}`)
 		}
-		const torrents = await response.json();
+		const torrents = await response.json()
 		//check if torrents is an array
 		if (!Array.isArray(torrents)) {
-			console.error('torrents is not an array');
-			return [];
+			console.error('torrents is not an array')
+			return []
 		}
-		return torrents.map(torrent => ({
-			name: torrent.name,
+		return torrents.map((torrent) => ({
+			firstSeen: new Date(torrent.first_seen),
 			infoHash: torrent.info_hash,
 			lastSeen: new Date(torrent.last_seen),
-			firstSeen: new Date(torrent.first_seen),
-		}));
+			name: torrent.name,
+		}))
 	} catch (error) {
-		console.error('Error fetching available torrents:', error);
-		return [];
+		console.error('Error fetching available torrents:', error)
+		return []
 	}
 }
 
 export async function deleteAvailableTorrent(infoHash) {
 	try {
-		const response = await fetch(`/api/torrents/${encodeURIComponent(infoHash)}`, {
-			method: 'DELETE',
-			mode: 'cors',
-		});
+		const response = await fetch(
+			`/api/torrents/${encodeURIComponent(infoHash)}`,
+			{
+				method: 'DELETE',
+				mode: 'cors',
+			}
+		)
 		if (!response.ok) {
-			const data = await response.json().catch(() => ({}));
-			throw new Error(data.error || `HTTP error! status: ${response.status}`);
+			const data = await response.json().catch(() => ({}))
+			throw new Error(data.error || `HTTP error! status: ${response.status}`)
 		}
-		return true;
+		return true
 	} catch (error) {
-		console.error('Error deleting available torrent:', error);
-		return false;
+		console.error('Error deleting available torrent:', error)
+		return false
 	}
 }
 

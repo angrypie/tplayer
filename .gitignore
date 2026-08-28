@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+.cloudflare-state/
+.env.cloudflare
 
 # Editor directories and files
 .vscode/*

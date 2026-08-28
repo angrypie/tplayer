@@ -2,16 +2,21 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -33,7 +38,10 @@ var (
 const (
 	sqliteDB       = "tplayer.sqlite"
 	historyDB      = "tplayer_history.sqlite"
+	confluenceBin  = "confluence"
 	confluenceAddr = "127.0.0.1:8080"
+	defaultAddr    = "127.0.0.1:8082"
+	shutdownWait   = 10 * time.Second
 )
 
 var (
@@ -42,28 +50,60 @@ var (
 )
 
 func main() {
-	e := setupEcho()
-	db := setupDatabase()
-	defer db.Close()
-
 	historyDb := setupHistoryDatabase()
 	defer historyDb.Close()
+	e := setupEcho(historyDb)
 
 	e.GET("/api/torrents", handleGetTorrents(historyDb))
 	e.DELETE("/api/torrents/:ih", handleDeleteTorrent(historyDb))
 	e.GET("/api/preload", handlePreload)
 
-	//run ./confluence command shell command in separate process
-	cmd := exec.Command("go", "run", "github.com/anacrolix/confluence@latest",
+	confluence := exec.Command(confluenceBin,
 		"-sqliteStorage="+sqliteDB,
 		"-addr="+confluenceAddr,
 	)
-	if err := cmd.Start(); err != nil {
-		// fmt.Printf("Failed to start cmd: %v", err)
-		panic("Failed to start cmd " + err.Error())
+	confluence.Stdout = os.Stdout
+	confluence.Stderr = os.Stderr
+	if err := confluence.Start(); err != nil {
+		log.Fatalf("failed to start %s: %v", confluenceBin, err)
+	}
+	go logConfluenceExit(confluence)
+
+	serverAddr := os.Getenv("TPLAYER_LISTEN_ADDR")
+	if serverAddr == "" {
+		serverAddr = defaultAddr
 	}
 
-	e.Logger.Fatal(e.Start(":80"))
+	shutdownSignals := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(shutdownSignals)
+	go shutDownOnSignal(e, confluence, shutdownSignals)
+
+	if err := e.Start(serverAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		e.Logger.Fatal(err)
+	}
+}
+
+func logConfluenceExit(command *exec.Cmd) {
+	if err := command.Wait(); err != nil {
+		log.Printf("confluence stopped: %v", err)
+	}
+}
+
+func shutDownOnSignal(e *echo.Echo, confluence *exec.Cmd, signals <-chan os.Signal) {
+	<-signals
+
+	if confluence.Process != nil {
+		if err := confluence.Process.Signal(os.Interrupt); err != nil {
+			log.Printf("failed to stop confluence: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownWait)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		log.Printf("failed to shut down server cleanly: %v", err)
+	}
 }
 
 func setupHistoryDatabase() *sql.DB {
@@ -85,14 +125,6 @@ func setupHistoryDatabase() *sql.DB {
 		panic("Failed to create history table: " + err.Error())
 	}
 
-	return db
-}
-
-func setupDatabase() *sql.DB {
-	db, err := sql.Open("sqlite", "file:"+sqliteDB+"?mode=ro")
-	if err != nil {
-		panic(err)
-	}
 	return db
 }
 
@@ -244,7 +276,7 @@ func handlePreload(c echo.Context) error {
 	}
 }
 
-func setupEcho() *echo.Echo {
+func setupEcho(historyDb *sql.DB) *echo.Echo {
 	e := echo.New()
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
@@ -264,8 +296,6 @@ func setupEcho() *echo.Echo {
 			URL: url1,
 		},
 	}
-
-	historyDb := setupHistoryDatabase()
 
 	proxy := middleware.ProxyWithConfig(middleware.ProxyConfig{
 		Skipper: func(c echo.Context) bool {

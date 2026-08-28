@@ -1,20 +1,25 @@
 import { Howl } from 'howler'
 
-const defaultOnEnd = () => {}
+const defaultOnEnd = () => {
+	// Playback can be used without registering an end callback.
+}
 
 export class Player {
 	constructor({ onEnd } = {}) {
-		this.howler = initHowler()
+		this.howler = null
 		this.onEnd = onEnd || defaultOnEnd
 	}
 
 	addUrl(url) {
-		this.howler.unload()
+		this.howler?.unload()
 		this.howler = newHowler(url)
 		this.howler.once('end', this.onEnd)
 	}
 
 	play() {
+		if (!this.howler) {
+			return false
+		}
 		if (!this.howler.playing()) {
 			this.howler.play()
 		}
@@ -22,37 +27,34 @@ export class Player {
 	}
 
 	pause() {
-		this.howler.pause()
+		this.howler?.pause()
 		return true
 	}
 
 	seekTo(time) {
-		this.howler.seek(time)
+		this.howler?.seek(time)
 	}
 
 	changeVolume(value) {
-		this.howler.volume(value)
+		this.howler?.volume(value)
 	}
 
 	changeRate(value) {
-		this.howler.rate(value)
+		this.howler?.rate(value)
 	}
 
 	get currentTime() {
-		return this.howler.seek() || 0
+		return this.howler?.seek() || 0
 	}
 
 	get duration() {
-		return this.howler.duration() || 1
+		return this.howler?.duration() || 1
 	}
 }
 
-const newHowler = url =>
+const newHowler = (url) =>
 	new Howl({
-		src: [url],
 		format: ['mp3'],
 		html5: true,
+		src: [url],
 	})
-
-const initHowler = () =>
-	newHowler(URL.createObjectURL(new Blob(['0'], { type: 'text/plain' })))

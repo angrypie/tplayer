@@ -1,3 +1,4 @@
+import { runInAction } from 'mobx'
 import { useLocalObservable } from 'mobx-react-lite'
 import { storage } from '~/storage'
 
@@ -6,7 +7,10 @@ export const useLibraryStore = () => {
 		items: [],
 
 		async updateLibraryItems() {
-			store.items = await storage.getTorrents()
+			const items = await storage.getTorrents()
+			runInAction(() => {
+				store.items = items
+			})
 		},
 	}))
 

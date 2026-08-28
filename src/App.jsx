@@ -1,9 +1,3 @@
-import React, { Component } from 'react'
-
-class App extends Component {
-	render() {
-		return <>{this.props.routes}</>
-	}
-}
+const App = ({ routes }) => <>{routes}</>
 
 export default App

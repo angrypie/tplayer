@@ -1,236 +1,424 @@
-import React, { useState } from 'react'
 import { observer } from 'mobx-react-lite'
+import { useCallback, useState } from 'react'
+import { Button } from '~/components/ui/button'
 import { storage } from '~/storage'
-import { timeFormat } from './ProgressLines'
+import { ActionDialog } from '../ActionDialog'
 import { preloadTorrent } from '../api'
 import { CleanBookDataButtons } from '../TorrentInfo'
-import { Button } from '~/components/ui/button'
+import { timeFormat } from './ProgressLines'
 
 const formatPath = (path) => {
-	if (!path || path.length <= 14) return path
-	return path.slice(0, 4) + '...' + path.slice(-10)
+	if (!path || path.length <= 14) {
+		return path
+	}
+	return `${path.slice(0, 4)}...${path.slice(-10)}`
 }
 
-// type NotesModalProps = {
-// 	notes: Note[] | undefined
-// 	onClose: () => void
-// 	store: BookStore
-// }
-
-const NotesModal = ({ notes, onClose, store }) => {
-	const { setCurrentFile, torrentInfo } = store
-	const [localNotes, setLocalNotes] = useState(notes)
-	const [clickedNoteId, setClickedNoteId] = useState(null)
-
-	const seekToNote = note => {
-		setClickedNoteId(note.id)
-		setTimeout(() => setClickedNoteId(null), 2000)
-
-		const pathStr = note.path
-		//search file in torrent info
-		const file = torrentInfo.files.find(({ path: p }) => pathStr === p.join('/'))
-		if (file) {
-			setCurrentFile(file, { time: note.time, path: [file.path] })
-			return
-		}
+const NoteRow = ({ isSelected, note, onRemove, onSelect }) => {
+	const handleRemove = (event) => {
+		event.stopPropagation()
+		onRemove(note)
 	}
 
-	const removeNote = async (e, note) => {
-		e.stopPropagation()
-		if (!window.confirm('Remove note?')) return
-		await storage.removeNote(note.id)
-		setLocalNotes(localNotes.filter(n => n.id !== note.id))
+	const handleSelect = () => {
+		onSelect(note)
 	}
-
-	const notesList = localNotes.map(note => (
-		<div key={note.id} className="flex gap-4 p-2 pr-10 border-b border-border bg-card hover:bg-accent cursor-pointer relative" onClick={() => seekToNote(note)}>
-			<div className="flex flex-col min-w-[8rem] flex-shrink-0">
-				<div className={`mb-3 text-muted-foreground transition-colors duration-300 ${clickedNoteId === note.id ? 'text-primary font-bold' : ''}`}>
-					{timeFormat(note.time)}
-				</div>
-				<div className="text-muted-foreground text-sm truncate">
-					{formatPath(note.path)}
-				</div>
-			</div>
-			<div className="flex-grow text-foreground">
-				{note.note}
-			</div>
-			<button onClick={(e) => removeNote(e, note)} className="absolute right-2 top-2 bg-transparent border-none text-muted-foreground hover:text-foreground">×</button>
-		</div>
-	))
 
 	return (
-		<div className="fixed inset-0 bg-background/70 flex justify-center items-center z-[1000]" onClick={onClose}>
-			<div className="bg-card rounded-lg w-[90%] max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-				<div className="flex justify-between items-center px-4 border-b border-border">
-					<h3 className="text-foreground">Notes</h3>
-					<button onClick={onClose} className="bg-transparent border-none text-2xl cursor-pointer text-muted-foreground hover:text-foreground">×</button>
-				</div>
-				<div className="overflow-y-auto p-4">
-					{notesList.length ? notesList : <div className="text-center text-muted-foreground">No notes</div>}
-				</div>
-			</div>
+		<div className='relative flex gap-4 border-border border-b bg-card p-2 pr-10 hover:bg-accent'>
+			<button
+				className='flex min-w-0 grow cursor-pointer gap-4 border-0 bg-transparent p-0 text-left'
+				onClick={handleSelect}
+				type='button'
+			>
+				<span className='flex min-w-[8rem] shrink-0 flex-col'>
+					<span
+						className={`mb-3 text-muted-foreground transition-colors duration-300 ${isSelected ? 'font-bold text-primary' : ''}`}
+					>
+						{timeFormat(note.time)}
+					</span>
+					<span className='truncate text-muted-foreground text-sm'>
+						{formatPath(note.path)}
+					</span>
+				</span>
+				<span className='grow text-foreground'>{note.note}</span>
+			</button>
+			<button
+				aria-label={`Remove note at ${timeFormat(note.time)}`}
+				className='absolute top-2 right-2 border-none bg-transparent text-muted-foreground hover:text-foreground'
+				onClick={handleRemove}
+				type='button'
+			>
+				×
+			</button>
 		</div>
 	)
 }
 
-const Actions = ({ store, preloadStatus, optimizeStatus, downloadStatus, handlePreload, handleOptimize, handleDownloadAll }) => {
-	const [dropdownOpen, setDropdownOpen] = useState(false)
+const NotesModal = ({ notes, onClose, store }) => {
+	const { setCurrentFile, torrentInfo } = store
+	const [localNotes, setLocalNotes] = useState(notes ?? [])
+	const [clickedNoteId, setClickedNoteId] = useState(null)
+	const [noteToRemove, setNoteToRemove] = useState(null)
+
+	const seekToNote = useCallback(
+		(note) => {
+			setClickedNoteId(note.id)
+			setTimeout(() => setClickedNoteId(null), 2000)
+
+			const file = torrentInfo.files.find(
+				({ path }) => note.path === path.join('/')
+			)
+			if (file) {
+				setCurrentFile(file, { path: [file.path], time: note.time })
+			}
+		},
+		[setCurrentFile, torrentInfo.files]
+	)
+
+	const requestRemoveNote = useCallback((note) => {
+		setNoteToRemove(note)
+	}, [])
+
+	const cancelRemoveNote = useCallback(() => {
+		setNoteToRemove(null)
+	}, [])
+
+	const confirmRemoveNote = useCallback(async () => {
+		if (!noteToRemove) {
+			return
+		}
+		await storage.removeNote(noteToRemove.id)
+		setLocalNotes((currentNotes) =>
+			currentNotes.filter((note) => note.id !== noteToRemove.id)
+		)
+		setNoteToRemove(null)
+	}, [noteToRemove])
 
 	return (
-		<div className="relative">
-			<Button onClick={() => setDropdownOpen(!dropdownOpen)} variant="ghost" > Actions </Button>
-			{dropdownOpen && (
+		<>
+			<div className='fixed inset-0 z-[1000] flex items-center justify-center'>
+				<button
+					aria-label='Close notes'
+					className='absolute inset-0 border-0 bg-background/70'
+					onClick={onClose}
+					type='button'
+				/>
+				<div
+					aria-labelledby='notes-title'
+					aria-modal='true'
+					className='relative flex max-h-[80vh] w-[90%] max-w-[600px] flex-col overflow-hidden rounded-lg bg-card'
+					role='dialog'
+				>
+					<div className='flex items-center justify-between border-border border-b px-4'>
+						<h2 className='text-foreground' id='notes-title'>
+							Notes
+						</h2>
+						<button
+							aria-label='Close notes'
+							className='cursor-pointer border-none bg-transparent text-2xl text-muted-foreground hover:text-foreground'
+							onClick={onClose}
+							type='button'
+						>
+							×
+						</button>
+					</div>
+					<div className='overflow-y-auto p-4'>
+						{localNotes.length ? (
+							localNotes.map((note) => (
+								<NoteRow
+									isSelected={clickedNoteId === note.id}
+									key={note.id}
+									note={note}
+									onRemove={requestRemoveNote}
+									onSelect={seekToNote}
+								/>
+							))
+						) : (
+							<div className='text-center text-muted-foreground'>No notes</div>
+						)}
+					</div>
+				</div>
+			</div>
+			<ActionDialog
+				description={
+					noteToRemove
+						? `Remove the note at ${timeFormat(noteToRemove.time)}?`
+						: undefined
+				}
+				isOpen={noteToRemove !== null}
+				onCancel={cancelRemoveNote}
+				onConfirm={confirmRemoveNote}
+				title='Remove note'
+			/>
+		</>
+	)
+}
+
+const Actions = ({
+	store,
+	preloadStatus,
+	optimizeStatus,
+	downloadStatus,
+	handlePreload,
+	handleOptimize,
+	handleDownloadAll,
+}) => {
+	const [dropdownOpen, setDropdownOpen] = useState(false)
+
+	const toggleDropdown = () => {
+		setDropdownOpen((isOpen) => !isOpen)
+	}
+
+	const closeDropdown = () => {
+		setDropdownOpen(false)
+	}
+
+	const selectPreload = () => {
+		handlePreload()
+		closeDropdown()
+	}
+
+	const selectOptimize = () => {
+		handleOptimize()
+		closeDropdown()
+	}
+
+	const selectDownloadAll = () => {
+		handleDownloadAll()
+		closeDropdown()
+	}
+
+	return (
+		<div className='relative'>
+			<Button onClick={toggleDropdown} type='button' variant='ghost'>
+				Actions
+			</Button>
+			{dropdownOpen ? (
 				<>
-					<div
-						className="fixed inset-0"
-						onClick={() => setDropdownOpen(false)}
+					<button
+						aria-label='Close actions'
+						className='fixed inset-0 border-0 bg-transparent'
+						onClick={closeDropdown}
+						type='button'
 					/>
-					<div className="absolute bottom-full right-0 mb-2 bg-card rounded-lg overflow-hidden shadow-lg min-w-[200px] border border-border">
-						<Button variant="ghost" className="w-full justify-start"
-							onClick={() => {
-								handlePreload();
-								setDropdownOpen(false);
-							}}
+					<div className='absolute right-0 bottom-full mb-2 min-w-[200px] overflow-hidden rounded-lg border border-border bg-card shadow-lg'>
+						<Button
+							className='w-full justify-start'
+							onClick={selectPreload}
+							type='button'
+							variant='ghost'
 						>
 							{preloadStatus}
 						</Button>
-						<Button variant="ghost" className="w-full justify-start"
-							onClick={() => {
-								handleOptimize();
-								setDropdownOpen(false);
-							}}
+						<Button
+							className='w-full justify-start'
+							onClick={selectOptimize}
+							type='button'
+							variant='ghost'
 						>
 							{optimizeStatus}
 						</Button>
-						<Button variant="ghost" className="w-full justify-start"
-							onClick={() => {
-								handleDownloadAll();
-								setDropdownOpen(false);
-							}}
+						<Button
+							className='w-full justify-start'
+							onClick={selectDownloadAll}
+							type='button'
+							variant='ghost'
 						>
 							{downloadStatus}
 						</Button>
-						<div className="border-t border-border">
-							<CleanBookDataButtons store={store} allFiles={store.torrentInfo?.files || []} />
+						<div className='border-border border-t'>
+							<CleanBookDataButtons
+								allFiles={store.torrentInfo?.files ?? []}
+								store={store}
+							/>
 						</div>
 					</div>
 				</>
-			)}
+			) : null}
 		</div>
 	)
 }
 
 export const BottomBar = observer(({ store }) => {
-	const { playerStore, ih, currentFile } = store
-	const { rate, changeRate } = playerStore
-	const nextRate = () => changeRate((r => (r > 2 ? 0.5 : r))(rate + 0.25))
+	const { currentFile, ih, playerStore, setNotice } = store
+	const { changeRate, rate } = playerStore
+	const currentPath = currentFile.path.join('/')
 	const [notes, setNotes] = useState(null)
-	const [preloadStatus, setPreloadStatus] = useState('Preload')
+	const [dialog, setDialog] = useState(null)
 	const [optimizeStatus, setOptimizeStatus] = useState('Optimize')
 	const [downloadStatus, setDownloadStatus] = useState('Download All')
 
-	const addNote = async () => {
-		const note = prompt('Enter note:')
-		if (!note) return
-		const time = playerStore.getProgress()
-		const path = currentFile.path.join('/')
-		await storage.addNote(ih, path, time, note)
-	}
+	const nextRate = useCallback(() => {
+		changeRate(((value) => (value > 2 ? 0.5 : value))(rate + 0.25))
+	}, [changeRate, rate])
 
-	const showNotes = async () => {
+	const closeDialog = useCallback(() => {
+		setDialog(null)
+	}, [])
+
+	const confirmDialog = useCallback(
+		async (value) => {
+			const action = dialog?.onConfirm
+			setDialog(null)
+			await action?.(value)
+		},
+		[dialog]
+	)
+
+	const addNote = useCallback(() => {
+		const notePath = currentPath
+		const noteTime = playerStore.getProgress()
+		setDialog({
+			confirmLabel: 'Add note',
+			inputLabel: 'Note',
+			onConfirm: async (note) => {
+				const trimmedNote = note.trim()
+				if (!trimmedNote) {
+					return
+				}
+				await storage.addNote(ih, notePath, noteTime, trimmedNote)
+			},
+			title: 'Add note',
+		})
+	}, [currentPath, ih, playerStore])
+
+	const showNotes = useCallback(async () => {
 		const fetchedNotes = await storage.getAllNotes(ih)
 		setNotes(fetchedNotes)
-	}
+	}, [ih])
 
-	const handlePreload = async () => {
-		if (!ih) return
-		if (!window.confirm('This will preload the book to the server. The data will not be loaded to your device until you start playing. Continue?')) {
-			return
-		}
+	const preloadBook = useCallback(async () => {
 		try {
 			const status = await preloadTorrent(ih)
-			window.alert(status)
-		} catch (err) {
-			window.alert(err.message)
+			setNotice(status)
+		} catch (error) {
+			setNotice(error instanceof Error ? error.message : String(error))
 		}
-	}
+	}, [ih, setNotice])
 
-	const handleOptimize = async () => {
-		if (!ih) return
-		if (!window.confirm('This will combine all files into one. Continue?')) {
+	const handlePreload = useCallback(() => {
+		if (!ih) {
 			return
 		}
+		setDialog({
+			description:
+				'This will preload the book to the server. The data will not be loaded to your device until you start playing.',
+			onConfirm: preloadBook,
+			title: 'Preload book?',
+		})
+	}, [ih, preloadBook])
+
+	const optimizeBook = useCallback(async () => {
 		setOptimizeStatus('Processing...')
 		try {
 			const result = await store.concatAllFiles()
-			if (result) {
-				setOptimizeStatus('Done')
-			} else {
-				setOptimizeStatus('Failed')
-			}
-		} catch (err) {
+			setOptimizeStatus(result ? 'Done' : 'Failed')
+		} catch (error) {
 			setOptimizeStatus('Error')
-			console.error(err)
+			console.error(error)
 		} finally {
 			setTimeout(() => setOptimizeStatus('Optimize'), 3000)
 		}
-	}
+	}, [store])
 
-	const handleDownloadAll = async () => {
-		if (!ih) return
-		if (!window.confirm('This will download all files to your device. Continue?')) {
+	const handleOptimize = useCallback(() => {
+		if (!ih) {
 			return
 		}
+		setDialog({
+			description: 'This will combine all files into one.',
+			onConfirm: optimizeBook,
+			title: 'Optimize downloaded files?',
+		})
+	}, [ih, optimizeBook])
+
+	const downloadAllFiles = useCallback(async () => {
 		setDownloadStatus('Downloading...')
 		try {
 			const result = await store.downloadAllFiles()
-			if (result) {
-				setDownloadStatus('Done')
-			} else {
-				setDownloadStatus('Failed')
-			}
-		} catch (err) {
+			setDownloadStatus(result ? 'Done' : 'Failed')
+		} catch (error) {
 			setDownloadStatus('Error')
-			console.error(err)
+			console.error(error)
 		} finally {
 			setTimeout(() => setDownloadStatus('Download All'), 3000)
 		}
-	}
+	}, [store])
 
-	console.log(notes)
+	const handleDownloadAll = useCallback(() => {
+		if (!ih) {
+			return
+		}
+		setDialog({
+			description: 'This will download all files to your device.',
+			onConfirm: downloadAllFiles,
+			title: 'Download all files?',
+		})
+	}, [downloadAllFiles, ih])
+
+	const copyInfoHash = useCallback(
+		async (event) => {
+			const button = event.currentTarget
+			try {
+				await navigator.clipboard.writeText(ih)
+				button.classList.add('show-popover')
+				setTimeout(() => button.classList.remove('show-popover'), 1000)
+			} catch {
+				setNotice('Unable to copy infohash')
+			}
+		},
+		[ih, setNotice]
+	)
+
+	const closeNotes = useCallback(() => {
+		setNotes(null)
+	}, [])
+
 	return (
 		<>
-			<Button onClick={nextRate} variant="ghost" className="w-12" > {`x${rate}`} </Button>
-			<Button onClick={addNote} variant="ghost" > +Note </Button>
-			<Button onClick={showNotes} variant="ghost" > Notes </Button>
+			<Button className='w-12' onClick={nextRate} type='button' variant='ghost'>
+				{`x${rate}`}
+			</Button>
+			<Button onClick={addNote} type='button' variant='ghost'>
+				+Note
+			</Button>
+			<Button onClick={showNotes} type='button' variant='ghost'>
+				Notes
+			</Button>
 			<Actions
-				store={store}
-				preloadStatus={preloadStatus}
-				optimizeStatus={optimizeStatus}
 				downloadStatus={downloadStatus}
-				handlePreload={handlePreload}
-				handleOptimize={handleOptimize}
 				handleDownloadAll={handleDownloadAll}
+				handleOptimize={handleOptimize}
+				handlePreload={handlePreload}
+				optimizeStatus={optimizeStatus}
+				preloadStatus='Preload'
+				store={store}
 			/>
 			<Button
-				onClick={(e) => {
-					navigator.clipboard.writeText(store.ih);
-					const button = e.currentTarget;
-					button.classList.add('show-popover');
-					setTimeout(() => button.classList.remove('show-popover'), 1000);
-				}}
-				variant="ghost"
-
-				className="w-8 relative group"
-				title="Copy infohash"
+				className='group relative w-8'
+				onClick={copyInfoHash}
+				title='Copy infohash'
+				type='button'
+				variant='ghost'
 			>
 				[ih]
-				<div className="absolute bottom-full left-1/2 -translate-x-1/2 bg-popover text-popover-foreground px-2 py-1 rounded text-sm whitespace-nowrap opacity-0 invisible group-[.show-popover]:opacity-100 group-[.show-popover]:visible transition-all duration-200">
+				<span className='invisible absolute bottom-full left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-popover px-2 py-1 text-popover-foreground text-sm opacity-0 transition-all duration-200 group-[.show-popover]:visible group-[.show-popover]:opacity-100'>
 					Copied infohash
-				</div>
+				</span>
 			</Button>
-		{ notes === null ? null : <NotesModal notes={notes} onClose={() => setNotes(null)} store={store} /> }
+			{notes === null ? null : (
+				<NotesModal notes={notes} onClose={closeNotes} store={store} />
+			)}
+			<ActionDialog
+				confirmLabel={dialog?.confirmLabel}
+				description={dialog?.description}
+				inputLabel={dialog?.inputLabel}
+				isOpen={dialog !== null}
+				onCancel={closeDialog}
+				onConfirm={confirmDialog}
+				title={dialog?.title ?? ''}
+			/>
 		</>
 	)
 })

@@ -4,11 +4,11 @@
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" }
   ],
-	"compilerOptions": {
-		"allowJs": true,
-		"baseUrl": ".",
-			"paths": {
-				"~/*": ["./src/*"]
-		}
-	}
+  "compilerOptions": {
+    "allowJs": true,
+    "paths": {
+      "~/*": ["./src/*"]
+    },
+    "strictNullChecks": true
+  }
 }

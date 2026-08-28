@@ -1,0 +1,36 @@
+{
+  "$schema": "./desired-state.schema.json",
+  "schemaVersion": 1,
+  "accountId": "d7d820b167b7d9ca3ac878bb72ddd2f4",
+  "zoneId": "bbf62ac8efb7c9801688726af0fb8814",
+  "zoneName": "angrypie.dev",
+  "tunnel": {
+    "id": "ea8c2389-1668-48eb-9ecf-d89fb086c19e",
+    "name": "couchview-angrypie-dev",
+    "hostname": "tplayer.angrypie.dev",
+    "service": "http://127.0.0.1:8082"
+  },
+  "dns": {
+    "type": "CNAME",
+    "name": "tplayer.angrypie.dev",
+    "content": "ea8c2389-1668-48eb-9ecf-d89fb086c19e.cfargotunnel.com",
+    "proxied": true,
+    "ttl": 1,
+    "comment": "Managed by TPlayer Cloudflare onboarding"
+  },
+  "access": {
+    "enabled": true,
+    "applicationName": "TPlayer",
+    "sessionDuration": "24h",
+    "managedTag": "tplayer-onboarding",
+    "policyName": "TPlayer users",
+    "emailEnvironmentVariable": "TPLAYER_ACCESS_EMAILS",
+    "emailDomainEnvironmentVariable": "TPLAYER_ACCESS_EMAIL_DOMAINS"
+  },
+  "health": {
+    "originUrl": "http://127.0.0.1:8082",
+    "publicUrl": "https://tplayer.angrypie.dev",
+    "apiPath": "/api/torrents",
+    "expectAccessRedirect": true
+  }
+}

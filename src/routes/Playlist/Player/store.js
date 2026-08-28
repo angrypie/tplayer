@@ -4,24 +4,34 @@ import { Player } from './player'
 export const maxVolume = 1
 export const rewindStep = 30
 export const defaultPlayerState = {
-	volume: 0.7,
-	rate: 1,
 	audio: null,
-	playing: false,
-	playerRef: {},
 	player: new Player(),
+	playerRef: {},
+	playing: false,
+	rate: 1,
+	volume: 0.7,
 }
 
 export const usePlayerStore = () => {
 	const store = useLocalObservable(() => ({
 		...addState(() => store, defaultPlayerState),
 
-		seekTo(p) {
-			store.player.seekTo(numberOrLimit(Math.round(p), 0, p))
+		changeRate(rate) {
+			const value = numberOrLimit(rate, 0.5, 4)
+			store.setRate(value)
+			store.player.changeRate(value)
 		},
 
 		changeVolume(volume) {
 			store.player.changeVolume(volume)
+		},
+
+		getDuration() {
+			return store.player.duration
+		},
+
+		getProgress() {
+			return store.player.currentTime
 		},
 
 		//state getters and setters
@@ -38,18 +48,9 @@ export const usePlayerStore = () => {
 			return true
 		},
 
-		getProgress() {
-			return store.player.currentTime
-		},
-
-		getDuration() {
-			return store.player.duration
-		},
-
-		togglePlaying(isPlaying) {
-			const { playing, play, pause } = store
-			const shouldPlay = typeof isPlaying === 'boolean' ? isPlaying : !playing
-			shouldPlay ? play() : pause()
+		pause() {
+			store.player.pause()
+			store.playing = false
 		},
 
 		play() {
@@ -59,15 +60,18 @@ export const usePlayerStore = () => {
 			}
 		},
 
-		pause() {
-			store.player.pause()
-			store.playing = false
+		seekTo(p) {
+			store.player.seekTo(numberOrLimit(Math.round(p), 0, p))
 		},
 
-		changeRate(rate) {
-			const value = numberOrLimit(rate, 0.5, 4)
-			store.setRate(value)
-			store.player.changeRate(value)
+		togglePlaying(isPlaying) {
+			const { playing, play, pause } = store
+			const shouldPlay = typeof isPlaying === 'boolean' ? isPlaying : !playing
+			if (shouldPlay) {
+				play()
+			} else {
+				pause()
+			}
 		},
 	}))
 
@@ -82,10 +86,20 @@ function addState(getStore, state) {
 		//init state
 		current[prop] = state[prop]
 		//defin  setters
-		current[method] = value => (getStore()[prop] = value)
+		current[method] = (value) => {
+			getStore()[prop] = value
+		}
 		return current
 	}, {})
 }
 
 //returns 'n' if it betweens 'a' and 'b' limits, or else closest limit.
-export const numberOrLimit = (n, a, b) => (n < a ? a : n > b ? b : n)
+export const numberOrLimit = (n, a, b) => {
+	if (n < a) {
+		return a
+	}
+	if (n > b) {
+		return b
+	}
+	return n
+}

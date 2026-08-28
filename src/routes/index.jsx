@@ -1,16 +1,15 @@
-import React from 'react'
 import { Route } from 'wouter'
 
 import Home from './Home'
 import Playlist from './Playlist'
 
-export const LayoutRoute = ({ ...rest }) => (
+export const LayoutRoute = () => (
 	<div className='container mx-auto max-w-xl'>
-		<Route path={'/'} exact component={Home} />
-		<Route path={'/playlist/:ih'} exact component={Playlist} />
+		<Route component={Home} exact path={'/'} />
+		<Route component={Playlist} exact path={'/playlist/:ih'} />
 	</div>
 )
 
-export const createRoutes = () => <LayoutRoute />
+const createRoutes = () => <LayoutRoute />
 
 export default createRoutes
