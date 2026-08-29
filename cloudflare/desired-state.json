@@ -30,7 +30,7 @@
   "health": {
     "originUrl": "http://127.0.0.1:8082",
     "publicUrl": "https://tplayer.angrypie.dev",
-    "apiPath": "/api/torrents",
+    "apiPath": "/api/health",
     "expectAccessRedirect": true
   }
 }

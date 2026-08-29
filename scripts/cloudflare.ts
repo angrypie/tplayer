@@ -1075,8 +1075,13 @@ const verifyRuntime = async (manifest: DesiredState): Promise<void> => {
 		throw new Error(`Origin API returned ${originApi.status}`)
 	}
 	const apiPayload = (await originApi.json()) as unknown
-	if (!Array.isArray(apiPayload)) {
-		throw new Error('Origin API did not return an array')
+	if (
+		typeof apiPayload !== 'object' ||
+		apiPayload === null ||
+		!('status' in apiPayload) ||
+		apiPayload.status !== 'ok'
+	) {
+		throw new Error('Origin health API did not report an ok status')
 	}
 
 	const publicResponse = await fetch(manifest.health.publicUrl, {

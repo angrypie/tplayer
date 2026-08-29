@@ -1,12 +1,18 @@
+import { Settings as SettingsIcon } from 'lucide-react'
 import { useEffect } from 'react'
+import { Link } from 'wouter'
 import { Nav } from '~/components/layout/Nav'
 import { ThemeToggle } from '~/components/theme-toggle'
+import { Button } from '~/components/ui/button'
 import { AvailableBooks, Library } from './library'
 import { useLibraryStore } from './libraryStore'
 import { Search } from './Search'
+import { SearchResults } from './SearchResults'
+import { useAudiobookSearch } from './useAudiobookSearch'
 
 const Home = () => {
 	const store = useLibraryStore()
+	const searchController = useAudiobookSearch()
 	useEffect(() => {
 		store.updateLibraryItems()
 	}, [store])
@@ -14,13 +20,29 @@ const Home = () => {
 		<div className='flex h-screen flex-col'>
 			<Nav>
 				<div className='min-w-0 flex-1'>
-					<Search />
+					<Search controller={searchController} />
 				</div>
+				<Button
+					aria-label='Search settings'
+					asChild
+					size='icon'
+					variant='outline'
+				>
+					<Link href='/settings'>
+						<SettingsIcon className='h-4 w-4' />
+					</Link>
+				</Button>
 				<ThemeToggle />
 			</Nav>
 			<div className='mt-4 flex-1 overflow-auto'>
-				<Library store={store} />
-				<AvailableBooks />
+				{searchController.hasSearched ? (
+					<SearchResults controller={searchController} />
+				) : (
+					<>
+						<Library store={store} />
+						<AvailableBooks />
+					</>
+				)}
 			</div>
 		</div>
 	)

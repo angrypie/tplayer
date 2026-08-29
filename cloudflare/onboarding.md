@@ -1,6 +1,6 @@
 # Cloudflare onboarding and recovery
 
-TPlayer runs as a local Go service on `127.0.0.1:8082`. Cloudflare publishes it
+TPlayer runs as a local Bun/Hono service on `127.0.0.1:8082`. Cloudflare publishes it
 at `https://tplayer.angrypie.dev` through the existing remotely managed tunnel
 `couchview-angrypie-dev`, with Cloudflare Access in front of the application.
 
@@ -57,12 +57,18 @@ bun run cloudflare -- validate
 bun run cloudflare:test
 ```
 
-Build and start the production origin before testing the route:
+Build and start the production origin before testing the route. For a persistent
+per-user macOS service:
 
 ```sh
-make prod
-TPLAYER_LISTEN_ADDR=127.0.0.1:8082 ./tplayer
+make launchctl-install
+make launchctl-status
 ```
+
+For a foreground run instead, first use `make launchctl-stop`, then
+`make prod-run`. Both modes use the same absolute database and torrent-cache
+paths and listen on `127.0.0.1:8082`, which is the origin already configured in
+the shared Cloudflare Tunnel.
 
 In a second terminal, check the origin and public Access boundary, then inspect
 the read-only Cloudflare plan:
@@ -124,7 +130,7 @@ public hostname, but the external policy remains outside repository rollback.
 
 - If the public URL fails but the origin works, run `cloudflare:plan` and inspect
   the tunnel connector in Cloudflare.
-- If both fail, restart the local production binary before changing Cloudflare.
+- If both fail, restart the local production service before changing Cloudflare.
 - If Access stops redirecting, do not expose the origin publicly; restore the
   Access application or roll back the last managed change.
 - Never remove or replace the Couchview ingress rule while repairing TPlayer.

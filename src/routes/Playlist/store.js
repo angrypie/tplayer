@@ -1,145 +1,302 @@
 import { runInAction, toJS } from 'mobx'
 import { useLocalObservable } from 'mobx-react-lite'
-import natsort from 'natsort'
 import React from 'react'
 import { storage } from '~/storage'
-import { comparePath } from '~/utils'
-import { getAudio, getTorrentInfo } from './api'
+import {
+	comparePath,
+	getAudioFormat,
+	isAudioFile,
+	naturalCompare,
+	normalizePath,
+} from '~/utils'
+import { downloadFileForOffline, getPlayableUrl, getTorrentInfo } from './api'
 import { usePlayerStore } from './Player/store'
 
 export const COMBINED_FILES_PREFIX = 'combined_Joh1thoh'
-const MAX_COMBINED_FILE_SIZE = 100 * 1024 * 1024
 
-const getConsecutiveCachedGroups = (files) => {
-	const groups = []
-	let currentGroup = []
+const COMBINED_RANGE_PATTERN = /^(\d+)-(\d+)$/
+const RESUME_SAVE_INTERVAL_MS = 3000
+const emptyCurrentFile = () => ({ id: '', path: [] })
+const emptyTorrentInfo = () => ({
+	files: [],
+	length: 0,
+	name: '',
+	state: undefined,
+})
+const ignoreFailure = () => undefined
 
-	for (const file of files) {
-		if (file.cached) {
-			currentGroup.push(file)
-			continue
-		}
-		if (currentGroup.length > 1) {
-			groups.push(currentGroup)
-		}
-		currentGroup = []
+const pathKey = (path) => normalizePath(path).join('/')
+
+const storedPathParts = (path) => {
+	const normalized = normalizePath(path)
+	if (normalized.length === 1) {
+		return normalized[0].split('/').filter(Boolean)
 	}
-
-	if (currentGroup.length > 1) {
-		groups.push(currentGroup)
-	}
-	return groups
+	return normalized
 }
 
-const splitGroupBySize = (files) => {
-	const groups = []
-	let currentGroup = []
-	let currentSize = 0
-
-	for (const file of files) {
-		const exceedsLimit =
-			currentSize + file.length > MAX_COMBINED_FILE_SIZE &&
-			currentGroup.length > 0
-		if (exceedsLimit) {
-			if (currentGroup.length > 1) {
-				groups.push(currentGroup)
-			}
-			currentGroup = [file]
-			currentSize = file.length
-			continue
+const findOriginalFile = (torrentFiles, storedFile, storedPath) =>
+	torrentFiles.find((torrentFile) => {
+		if (storedFile.id && torrentFile.id === storedFile.id) {
+			return true
 		}
-		currentGroup.push(file)
-		currentSize += file.length
-	}
+		return pathKey(torrentFile.path) === storedPath
+	})
 
-	if (currentGroup.length > 1) {
-		groups.push(currentGroup)
-	}
-	return groups
-}
-
-const loadStoredBlobs = async (infoHash, files) => {
-	const storedFiles = await Promise.all(
-		files.map((file) => storage.getFile(infoHash, file.path.join('/')))
-	)
-	if (storedFiles.some((file) => !file)) {
+const combinedIndexes = (pathParts) => {
+	const match = pathParts[1]?.match(COMBINED_RANGE_PATTERN)
+	if (!match) {
 		return null
 	}
-	return storedFiles.map(({ file }) => file)
-}
-
-const prepareCombinedFile = async (infoHash, torrentFiles, files) => {
-	const blobs = await loadStoredBlobs(infoHash, files)
-	if (!blobs) {
+	const startIndex = Number(match[1])
+	const endIndex = Number(match[2])
+	if (startIndex > endIndex) {
 		return null
 	}
-	const combinedBlob = await concatMP3Blobs(blobs)
-	if (combinedBlob.size > MAX_COMBINED_FILE_SIZE) {
-		return { exceedsLimit: true }
-	}
+	return [startIndex, endIndex]
+}
 
-	const [firstFile] = files
-	const firstIndex = torrentFiles.findIndex(
-		(file) => file.path.join('/') === firstFile.path.join('/')
-	)
-	const rangePrefix = `${COMBINED_FILES_PREFIX}/${firstIndex}-${firstIndex + files.length - 1}/`
+const cachedOriginalFile = (
+	torrentFiles,
+	storedFile,
+	pathParts,
+	storedPath
+) => {
+	const originalFile = findOriginalFile(torrentFiles, storedFile, storedPath)
 	return {
-		blob: combinedBlob,
-		exceedsLimit: false,
-		originalPaths: files.map((file) => file.path.join('/')),
-		path: `${rangePrefix}${firstFile.path.join('/')}`,
+		...originalFile,
+		cached: true,
+		id: originalFile?.id ?? storedFile.id ?? storedPath,
+		length: originalFile?.length ?? storedFile.file.size,
+		mimeType: originalFile?.mimeType ?? storedFile.file.type,
+		name: originalFile?.name ?? pathParts.at(-1) ?? storedPath,
+		path: originalFile?.path ?? pathParts,
+		state: 'ready',
 	}
 }
 
-const saveCombinedFile = async (infoHash, combinedFile) => {
-	await storage.addFile(infoHash, combinedFile.path, combinedFile.blob)
-	await Promise.all(
-		combinedFile.originalPaths.map((path) => storage.removeFile(infoHash, path))
-	)
+const hideCombinedOriginals = (indexes, torrentFiles, hiddenFiles) => {
+	if (!indexes) {
+		return
+	}
+	const [startIndex, endIndex] = indexes
+	for (let index = startIndex; index <= endIndex; index += 1) {
+		const originalFile = torrentFiles[index]
+		if (originalFile) {
+			hiddenFiles.add(pathKey(originalFile.path))
+		}
+	}
 }
+
+const cachedCombinedFile = (storedFile, pathParts, storedPath, indexes) => ({
+	cached: true,
+	id: storedFile.id ?? storedPath,
+	isCombined: true,
+	length: storedFile.file.size,
+	mimeType: storedFile.file.type || 'audio/mpeg',
+	name: pathParts.at(-1) ?? storedPath,
+	originalIndexes: indexes ?? [0, 0],
+	path: pathParts,
+	state: 'ready',
+})
 
 const collectStoredFileState = (files, torrentFiles) => {
 	const storedPaths = new Set()
 	const hiddenFiles = new Set()
 	const allFiles = []
 
-	for (const file of files) {
-		const pathParts = file.path.split('/')
+	for (const storedFile of files) {
+		const pathParts = storedPathParts(storedFile.path)
+		const storedPath = pathParts.join('/')
+		storedPaths.add(storedPath)
 		if (pathParts[0] !== COMBINED_FILES_PREFIX) {
-			storedPaths.add(file.path)
-			allFiles.push({
-				cached: true,
-				length: file.file.size,
-				path: pathParts,
-				state: 'ready',
-			})
+			allFiles.push(
+				cachedOriginalFile(torrentFiles, storedFile, pathParts, storedPath)
+			)
 			continue
 		}
 
-		const [startIndex, endIndex] = pathParts[1].split('-').map(Number)
-		for (let index = startIndex; index <= endIndex; index += 1) {
-			const originalFile = torrentFiles[index]
-			if (originalFile) {
-				hiddenFiles.add(originalFile.path.join('/'))
-			}
-		}
-		storedPaths.add(file.path)
-		allFiles.push({
-			cached: true,
-			isCombined: true,
-			length: file.file.size,
-			originalIndexes: [startIndex, endIndex],
-			path: pathParts,
-			state: 'ready',
-		})
+		const indexes = combinedIndexes(pathParts)
+		hideCombinedOriginals(indexes, torrentFiles, hiddenFiles)
+		allFiles.push(
+			cachedCombinedFile(storedFile, pathParts, storedPath, indexes)
+		)
 	}
 
 	return { allFiles, hiddenFiles, storedPaths }
 }
 
+const releaseUrl = (url) => {
+	if (typeof url === 'string' && url.length > 0) {
+		URL.revokeObjectURL(url)
+	}
+}
+
+const playbackTime = (value) => {
+	const numericValue = Number(value)
+	return Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0
+}
+
+const isCurrentSourceRequest = (store, requestId) =>
+	requestId === store.sourceRequestId && !store.disposed
+
+const isCurrentMetadataRequest = (store, requestId) =>
+	requestId === store.metadataRequestId && !store.disposed
+
+const persistSnapshotSafely = async (store, snapshot, failureMessage) => {
+	try {
+		await store.persistResumeSnapshot(snapshot)
+		return true
+	} catch {
+		store.setNotice(failureMessage)
+		return false
+	}
+}
+
+const reuseCurrentSource = (store, file, state, options, resumeTime) => {
+	const isSameSource =
+		comparePath(file.path, store.currentFile.path) &&
+		store.playerStore.audio &&
+		!store.playerStore.error
+	if (!isSameSource) {
+		return false
+	}
+	if (state?.time !== undefined) {
+		store.playerStore.seekTo(resumeTime)
+	}
+	if (options.autoplay) {
+		store.playerStore.play()
+	}
+	return true
+}
+
+const beginSourceChange = (store, options) => {
+	const requestId = store.sourceRequestId + 1
+	store.sourceRequestId = requestId
+	return {
+		previousSnapshot: options.skipFlush ? null : store.createResumeSnapshot(),
+		requestId,
+		shouldAutoplay: Boolean(options.autoplay || store.playerStore.playing),
+	}
+}
+
+const resolvePlayableSource = async (store, file, requestId) => {
+	try {
+		const url = await getPlayableUrl(store.ih, file)
+		if (!isCurrentSourceRequest(store, requestId)) {
+			releaseUrl(url)
+			return null
+		}
+		return url
+	} catch (error) {
+		if (isCurrentSourceRequest(store, requestId)) {
+			runInAction(() => {
+				file.state = 'ready'
+			})
+			store.handlePlaybackError(error)
+		}
+		return null
+	}
+}
+
+const activatePlayableSource = (
+	store,
+	file,
+	url,
+	resumeTime,
+	shouldAutoplay
+) => {
+	runInAction(() => {
+		file.state = 'ready'
+		store.currentFile = file
+	})
+	store.playerStore.loadSource({
+		autoplay: shouldAutoplay,
+		format: getAudioFormat(file),
+		resumeTime,
+		url,
+	})
+}
+
+const prepareTorrentSwitch = async (store, infoHash, requestId) => {
+	if (infoHash === store.ih) {
+		return true
+	}
+	const snapshot = store.createResumeSnapshot()
+	store.sourceRequestId += 1
+	await persistSnapshotSafely(
+		store,
+		snapshot,
+		'Unable to save the previous playback position.'
+	)
+	if (!isCurrentMetadataRequest(store, requestId)) {
+		return false
+	}
+	store.playerStore.clearSource()
+	runInAction(() => {
+		store.currentFile = emptyCurrentFile()
+		store.ih = infoHash
+		store.torrentInfo = emptyTorrentInfo()
+	})
+	return true
+}
+
+const requestTorrentInfo = async (store, infoHash, requestId) => {
+	try {
+		const info = await getTorrentInfo(infoHash)
+		return isCurrentMetadataRequest(store, requestId) ? info : null
+	} catch (error) {
+		if (isCurrentMetadataRequest(store, requestId)) {
+			store.handlePlaybackError(error)
+		}
+		return null
+	}
+}
+
+const normalizeTorrentInfo = (info) => {
+	const files = [...(info.files ?? [])]
+	files.sort((a, b) => naturalCompare(pathKey(a.path), pathKey(b.path)))
+	return {
+		files,
+		length: info.length ?? 0,
+		name: info['name.utf-8'] ?? info.name ?? '',
+		state: info.state,
+	}
+}
+
+const resumeSavedFile = async (store, torrentInfo, infoHash, requestId) => {
+	const savedState = torrentInfo.state
+	if (!savedState?.path) {
+		return
+	}
+	let playableFiles = torrentInfo.files
+	try {
+		playableFiles = await store.getAllTorrentFiles(infoHash, torrentInfo.files)
+	} catch (error) {
+		store.handlePlaybackError(error)
+	}
+	if (!isCurrentMetadataRequest(store, requestId)) {
+		return
+	}
+	const resumedFile = playableFiles.find(
+		(file) => isAudioFile(file) && comparePath(file.path, savedState.path)
+	)
+	if (resumedFile) {
+		await store.setCurrentFile(resumedFile, savedState)
+	}
+}
+
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
 	const bookStore = useBookStore({ ih, playerStore })
+
+	React.useEffect(
+		() => () => {
+			bookStore.dispose().catch(ignoreFailure)
+		},
+		[bookStore]
+	)
+
 	return {
 		bookStore,
 		playerStore,
@@ -148,53 +305,52 @@ export const useBookStores = ({ ih }) => {
 
 export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 	const store = useLocalObservable(() => ({
-		audio: null,
-
 		async cleanBookData(infoHash) {
+			const snapshot = store.createResumeSnapshot()
+			store.sourceRequestId += 1
+			store.playerStore.clearSource()
+			store.currentFile = emptyCurrentFile()
+			await store.persistResumeSnapshot(snapshot)
 			const result = await storage.removeFilesByIh(infoHash)
 			if (result) {
+				store.filesVersion += 1
 				await store.setTorrentInfo(infoHash)
 			}
+			return result
 		},
 
-		async concatAllFiles() {
-			const { ih: infoHash, torrentInfo } = store
-			if (!(infoHash && torrentInfo.files.length)) {
-				return false
+		createResumeSnapshot(timeOverride) {
+			const currentPath = normalizePath(toJS(store.currentFile.path))
+			if (!(store.ih && store.playerStore.audio && currentPath.length > 0)) {
+				return null
 			}
-
-			const groups = getConsecutiveCachedGroups(torrentInfo.files).flatMap(
-				splitGroupBySize
-			)
-			if (groups.length === 0) {
-				return false
+			const time =
+				timeOverride === undefined
+					? store.playerStore.getProgress()
+					: timeOverride
+			return {
+				infoHash: store.ih,
+				state: {
+					path: currentPath,
+					time: playbackTime(time),
+					updatedAt: Date.now(),
+				},
 			}
-
-			for (const group of groups) {
-				// biome-ignore lint/performance/noAwaitInLoops: Preparing one group at a time bounds retained audio data to one combined file.
-				const combinedFile = await prepareCombinedFile(
-					infoHash,
-					torrentInfo.files,
-					group
-				)
-				if (combinedFile === null) {
-					return false
-				}
-				if (combinedFile.exceedsLimit) {
-					store.setNotice('Combined file would exceed 100MB limit')
-					return false
-				}
-
-				await saveCombinedFile(infoHash, combinedFile)
-			}
-			await store.setTorrentInfo(infoHash)
-			return true
 		},
+		currentFile: emptyCurrentFile(),
 
-		continueLastPlayed(file, state) {
-			store.setCurrentFile(file, state)
+		async dispose() {
+			if (store.disposed) {
+				return
+			}
+			store.disposed = true
+			store.metadataRequestId += 1
+			store.sourceRequestId += 1
+			const snapshot = store.createResumeSnapshot()
+			store.playerStore.dispose()
+			await store.persistResumeSnapshot(snapshot)
 		},
-		currentFile: { path: [] },
+		disposed: false,
 
 		async downloadAllFiles() {
 			const { ih: infoHash, torrentInfo } = store
@@ -202,41 +358,54 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 				return false
 			}
 
-			// Get list of non-cached files
 			const filesToDownload = torrentInfo.files.filter((file) => !file.cached)
 			if (filesToDownload.length === 0) {
-				return true // All files already downloaded
+				return true
 			}
 
-			let downloadedCount = 0
+			let failedCount = 0
 			for (const file of filesToDownload) {
-				try {
+				runInAction(() => {
 					file.state = 'loading'
-					// biome-ignore lint/performance/noAwaitInLoops: Downloads are sequential to bound network and in-memory audio data.
-					const url = await store.getAudio(file)
-					if (url !== null) {
-						URL.revokeObjectURL(url)
-						downloadedCount += 1
-					}
-				} catch (error) {
-					console.error('Failed to download file:', file.path.join('/'), error)
+				})
+				try {
+					// biome-ignore lint/performance/noAwaitInLoops: Sequential full-file downloads keep peak browser memory bounded.
+					await downloadFileForOffline(infoHash, file)
+					runInAction(() => {
+						file.cached = true
+						file.state = 'ready'
+					})
+				} catch {
+					failedCount += 1
+					runInAction(() => {
+						file.state = 'ready'
+					})
 				}
 			}
-
-			return downloadedCount === filesToDownload.length
+			runInAction(() => {
+				store.filesVersion += 1
+				if (failedCount > 0) {
+					store.setNotice(
+						`${failedCount} file${failedCount === 1 ? '' : 's'} could not be downloaded.`
+					)
+				}
+			})
+			return failedCount === 0
 		},
+		filesVersion: 0,
 
-		//all files in metadata plus from storage merged into one array
-		async getAllTorrentFiles() {
-			const files = await storage.getAllFilesForTorrent(store.ih)
+		async getAllTorrentFiles(
+			infoHash = store.ih,
+			torrentFiles = store.torrentInfo.files
+		) {
+			const files = await storage.getAllFilesForTorrent(infoHash)
 			const { allFiles, hiddenFiles, storedPaths } = collectStoredFileState(
 				files,
-				store.torrentInfo.files
+				torrentFiles
 			)
 
-			// Add files from torrent metadata that weren't combined or stored
-			for (const file of store.torrentInfo.files) {
-				const filePath = file.path.join('/')
+			for (const file of torrentFiles) {
+				const filePath = pathKey(file.path)
 				if (!(storedPaths.has(filePath) || hiddenFiles.has(filePath))) {
 					allFiles.push(file)
 				}
@@ -245,81 +414,125 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 			return allFiles
 		},
 
-		async getAudio({ path }) {
-			const { ih: infoHash } = store
-			if (infoHash === undefined || path === undefined || path.length <= 0) {
-				return null
-			}
-			const url = await getAudio(infoHash, path)
-			if (url !== null) {
-				store.updateCached({ path }, true)
-			}
-			return url
+		async getNextFile() {
+			const files = (await store.getAllTorrentFiles()).filter(isAudioFile)
+			const currentIndex = files.findIndex(({ path }) =>
+				comparePath(path, store.currentFile.path)
+			)
+			return currentIndex >= 0 ? files[currentIndex + 1] : undefined
 		},
 
-		async getNextFile() {
-			const files = await store.getAllTorrentFiles()
-			const currentPath = store.currentFile.path
-			const currentIndex = files.findIndex(({ path }) =>
-				comparePath(path, currentPath)
+		async handlePlaybackEnd({ currentTime, duration } = {}) {
+			const requestId = store.sourceRequestId
+			const finalTime = Math.max(
+				playbackTime(currentTime),
+				playbackTime(duration)
 			)
-			return files[currentIndex + 1]
+			await persistSnapshotSafely(
+				store,
+				store.createResumeSnapshot(finalTime),
+				'Unable to save the finished chapter position.'
+			)
+			if (requestId !== store.sourceRequestId || store.disposed) {
+				return
+			}
+			const nextFile = await store.getNextFile()
+			if (requestId !== store.sourceRequestId || store.disposed) {
+				return
+			}
+			if (!nextFile) {
+				store.playerStore.finishPlayback()
+				return
+			}
+			await store.setCurrentFile(nextFile, undefined, {
+				autoplay: true,
+				skipFlush: true,
+			})
+		},
+
+		handlePlaybackError(error) {
+			store.setNotice(error instanceof Error ? error.message : String(error))
 		},
 		ih: initialInfoHash,
+		metadataRequestId: 0,
 		notice: null,
+
+		async persistResumeSnapshot(snapshot) {
+			if (!snapshot) {
+				return false
+			}
+			await storage.updateTorrent(snapshot.infoHash, { state: snapshot.state })
+			return true
+		},
 		playerStore,
 
 		async removeBook(infoHash) {
-			const result = await storage.removeFilesAndTorrent(infoHash)
-			return result
+			store.metadataRequestId += 1
+			store.sourceRequestId += 1
+			store.playerStore.clearSource()
+			store.currentFile = emptyCurrentFile()
+			return await storage.removeFilesAndTorrent(infoHash)
 		},
 
 		async removeFile(infoHash, file) {
-			const success = await storage.removeFile(infoHash, file.path.join('/'))
+			if (comparePath(file.path, store.currentFile.path)) {
+				await store.saveCurrentPlaying({ force: true })
+				store.sourceRequestId += 1
+				store.playerStore.clearSource()
+				store.currentFile = emptyCurrentFile()
+			}
+			const success = await storage.removeFile(infoHash, pathKey(file.path))
 			if (success) {
 				runInAction(() => {
 					file.cached = false
 					file.state = 'ready'
+					store.filesVersion += 1
 				})
 			}
 			return success
 		},
 
-		async saveCurrentPlaying() {
-			const { currentFile, ih: infoHash } = store
-			const { playing, getProgress } = store.playerStore
-			if (!playing) {
-				return
+		async saveCurrentPlaying({ force = false } = {}) {
+			if (!(force || store.playerStore.playing)) {
+				return false
 			}
-			await storage.updateTorrent(infoHash, {
-				state: {
-					path: toJS(currentFile.path),
-					time: getProgress(),
-					updatedAt: Date.now(),
-				},
-			})
+			return await store.persistResumeSnapshot(store.createResumeSnapshot())
 		},
-		//set current file to play, and seek to last played position if state provided
-		async setCurrentFile(file, state) {
-			if (typeof file !== 'object') {
-				return
+
+		async setCurrentFile(file, state, options = {}) {
+			if (!(file && isAudioFile(file))) {
+				store.setNotice('This file is not a supported audio format.')
+				return false
 			}
-			if (file.cached === true) {
-				store.currentFile = file
-				if (state !== undefined) {
-					setTimeout(() => {
-						store.playerStore.seekTo(state.time - 5)
-					}, 200)
-				}
+
+			const resumeTime = playbackTime(state?.time)
+			if (reuseCurrentSource(store, file, state, options, resumeTime)) {
 				return true
 			}
-			file.state = 'loading'
-			const url = await store.getAudio(file)
-			if (url === null) {
-				file.state = ''
-				store.setNotice('File is not available')
+
+			const { previousSnapshot, requestId, shouldAutoplay } = beginSourceChange(
+				store,
+				options
+			)
+			await persistSnapshotSafely(
+				store,
+				previousSnapshot,
+				'Unable to save the previous playback position.'
+			)
+			if (!isCurrentSourceRequest(store, requestId)) {
+				return false
 			}
-			return false
+
+			runInAction(() => {
+				file.state = 'loading'
+			})
+			const url = await resolvePlayableSource(store, file, requestId)
+			if (!url) {
+				return false
+			}
+
+			activatePlayableSource(store, file, url, resumeTime, shouldAutoplay)
+			return true
 		},
 
 		setNotice(message) {
@@ -327,107 +540,68 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 		},
 
 		async setTorrentInfo(infoHash) {
-			const info = await getTorrentInfo(infoHash)
-			const { name = '', files = [], length = 0, state } = info
-			files.sort((a, b) => natsort()(a.path.join('/'), b.path.join('/')))
-			store.updateTorrentInfo({
-				files,
-				length,
-				name: info['name.utf-8'] || name,
-				state,
-			})
-			// Start play
-			if (state) {
-				for (const file of files) {
-					if (comparePath(file.path, state.path)) {
-						store.continueLastPlayed(file, state)
-					}
-				}
+			const requestId = store.metadataRequestId + 1
+			store.metadataRequestId = requestId
+			if (!(await prepareTorrentSwitch(store, infoHash, requestId))) {
+				return false
 			}
+
+			const info = await requestTorrentInfo(store, infoHash, requestId)
+			if (!info) {
+				return false
+			}
+
+			const torrentInfo = normalizeTorrentInfo(info)
+			runInAction(() => {
+				store.torrentInfo = torrentInfo
+			})
+			await resumeSavedFile(store, torrentInfo, infoHash, requestId)
+			return true
 		},
-		torrentInfo: { files: [], length: 0, name: '' },
+		sourceRequestId: 0,
+		torrentInfo: emptyTorrentInfo(),
 
 		updateCached({ path }, cached) {
-			const file = store.torrentInfo.files.find(({ path: p }) =>
-				comparePath(path, p)
+			const file = store.torrentInfo.files.find(({ path: candidatePath }) =>
+				comparePath(path, candidatePath)
 			)
 			if (file) {
 				file.cached = cached
 				file.state = 'ready'
+				store.filesVersion += 1
 			}
-		},
-
-		updateTorrentInfo(torrentInfo) {
-			store.torrentInfo = torrentInfo
 		},
 	}))
 
-	store.playerStore.player.onEnd = async () => {
-		const nextFile = await store.getNextFile()
-		const ok = await store.setCurrentFile(nextFile)
-		if (!ok) {
-			store.setCurrentFile(nextFile)
-		}
-	}
-
-	//TODO memory leak, need to clean interval on every interval creation
 	React.useEffect(() => {
-		const interval = setInterval(store.saveCurrentPlaying, 3000)
+		store.playerStore.setLifecycleHandlers({
+			onEnd: store.handlePlaybackEnd,
+			onError: store.handlePlaybackError,
+			onPause: () => store.saveCurrentPlaying({ force: true }),
+		})
+		return () => {
+			store.playerStore.setLifecycleHandlers()
+		}
+	}, [store])
+
+	React.useEffect(() => {
+		const interval = setInterval(() => {
+			store.saveCurrentPlaying().catch(ignoreFailure)
+		}, RESUME_SAVE_INTERVAL_MS)
 		return () => clearInterval(interval)
 	}, [store])
 
+	React.useEffect(() => {
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'hidden') {
+				store.saveCurrentPlaying({ force: true }).catch(ignoreFailure)
+			}
+		}
+		document.addEventListener('visibilitychange', handleVisibilityChange)
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange)
+		}
+	}, [store])
+
 	return store
-}
-
-function isMP3(buffer) {
-	// Check for ID3v2 header
-	if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) {
-		// "ID3"
-		return true
-	}
-
-	// Check for MPEG sync word (0xFF followed by 0xE0, 0xF0, or 0xF2)
-	// biome-ignore lint/suspicious/noBitwiseOperators: MPEG frame sync detection requires a byte mask.
-	if (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0) {
-		return true
-	}
-
-	return false
-}
-// NOTE this is exerimental feature to try to connect tiny MP3 files, it would not work properly in most cases.
-// Using standart API leads to poor performance, so we stuck with manual file concatenation.
-// Maybe find more optimal solution like using ffmpeg.wasm
-async function concatMP3Blobs(blobs) {
-	if (!blobs || blobs.length === 0) {
-		return new Blob([], { type: 'audio/mpeg' }) // Return an empty MP3 blob if no blobs are provided
-	}
-
-	const buffers = await Promise.all(
-		blobs.map(async (blob) => new Uint8Array(await blob.arrayBuffer()))
-	)
-	const audioBuffers = buffers.filter(isMP3)
-
-	// Calculate the total size of the combined audio data
-	let totalLength = 0
-	for (const buffer of audioBuffers) {
-		totalLength += buffer.length
-	}
-
-	// Create a new Uint8Array to hold the combined data
-	const combinedBuffer = new Uint8Array(totalLength)
-
-	// Copy the data from each individual buffer into the combined buffer
-	let offset = 0
-	for (const buffer of audioBuffers) {
-		combinedBuffer.set(buffer, offset)
-		offset += buffer.length
-	}
-
-	// Verify the combined file is still a valid MP3
-	if (!isMP3(combinedBuffer)) {
-		throw new Error('Combined file is not a valid MP3')
-	}
-
-	// Create a new Blob from the combined buffer
-	return new Blob([combinedBuffer], { type: 'audio/mpeg' })
 }

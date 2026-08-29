@@ -1,17 +1,92 @@
 import { observer } from 'mobx-react-lite'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
 import { storage } from '~/storage'
 import { ActionDialog } from '../ActionDialog'
-import { preloadTorrent } from '../api'
+import { getPreloadStatus, preloadTorrent } from '../api'
 import { CleanBookDataButtons } from '../TorrentInfo'
+import { formatBytes } from '../utils'
 import { timeFormat } from './ProgressLines'
+
+const PRELOAD_POLL_INTERVAL_MS = 1500
+const PRELOAD_MAX_POLLS = 1200
 
 const formatPath = (path) => {
 	if (!path || path.length <= 14) {
 		return path
 	}
 	return `${path.slice(0, 4)}...${path.slice(-10)}`
+}
+
+const waitForNextPreloadPoll = (signal) =>
+	new Promise((resolve) => {
+		if (signal.aborted) {
+			resolve(false)
+			return
+		}
+		const handleAbort = () => {
+			clearTimeout(timeoutId)
+			resolve(false)
+		}
+		const timeoutId = setTimeout(() => {
+			signal.removeEventListener('abort', handleAbort)
+			resolve(true)
+		}, PRELOAD_POLL_INTERVAL_MS)
+		signal.addEventListener('abort', handleAbort, { once: true })
+	})
+
+const preloadProgress = ({ downloadedBytes, totalBytes }) => {
+	if (totalBytes <= 0) {
+		return formatBytes(downloadedBytes)
+	}
+	const percentage = Math.min(
+		100,
+		Math.floor((downloadedBytes / totalBytes) * 100)
+	)
+	return `${percentage}% (${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)})`
+}
+
+const preloadLabel = (status) => {
+	if (status.state === 'completed') {
+		return 'Preloaded'
+	}
+	if (status.state === 'failed') {
+		return 'Preload failed'
+	}
+	return `Preload ${preloadProgress(status)}`
+}
+
+const preloadNotice = (status) => {
+	if (status.state === 'completed') {
+		return `Server preload complete: ${preloadProgress(status)}`
+	}
+	if (status.state === 'failed') {
+		return status.error || 'Server preload failed.'
+	}
+	return `Server preload: ${preloadProgress(status)}`
+}
+
+const pollPreload = async (infoHash, signal, onStatus) => {
+	for (let pollCount = 0; pollCount < PRELOAD_MAX_POLLS; pollCount += 1) {
+		if (signal.aborted) {
+			return 'cancelled'
+		}
+		// biome-ignore lint/performance/noAwaitInLoops: Each status request must finish before the next bounded poll.
+		const status = await getPreloadStatus(infoHash)
+		if (signal.aborted) {
+			return 'cancelled'
+		}
+		if (status) {
+			onStatus(status)
+			if (status.state !== 'running') {
+				return status.state
+			}
+		}
+		if (!(await waitForNextPreloadPoll(signal))) {
+			return 'cancelled'
+		}
+	}
+	return 'timeout'
 }
 
 const NoteRow = ({ isSelected, note, onRemove, onSelect }) => {
@@ -70,10 +145,12 @@ const NotesModal = ({ notes, onClose, store }) => {
 				({ path }) => note.path === path.join('/')
 			)
 			if (file) {
-				setCurrentFile(file, { path: [file.path], time: note.time })
+				setCurrentFile(file, { path: [file.path], time: note.time }).catch(
+					store.handlePlaybackError
+				)
 			}
 		},
-		[setCurrentFile, torrentInfo.files]
+		[setCurrentFile, store.handlePlaybackError, torrentInfo.files]
 	)
 
 	const requestRemoveNote = useCallback((note) => {
@@ -158,10 +235,8 @@ const NotesModal = ({ notes, onClose, store }) => {
 const Actions = ({
 	store,
 	preloadStatus,
-	optimizeStatus,
 	downloadStatus,
 	handlePreload,
-	handleOptimize,
 	handleDownloadAll,
 }) => {
 	const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -176,11 +251,6 @@ const Actions = ({
 
 	const selectPreload = () => {
 		handlePreload()
-		closeDropdown()
-	}
-
-	const selectOptimize = () => {
-		handleOptimize()
 		closeDropdown()
 	}
 
@@ -213,14 +283,6 @@ const Actions = ({
 						</Button>
 						<Button
 							className='w-full justify-start'
-							onClick={selectOptimize}
-							type='button'
-							variant='ghost'
-						>
-							{optimizeStatus}
-						</Button>
-						<Button
-							className='w-full justify-start'
 							onClick={selectDownloadAll}
 							type='button'
 							variant='ghost'
@@ -244,10 +306,21 @@ export const BottomBar = observer(({ store }) => {
 	const { currentFile, ih, playerStore, setNotice } = store
 	const { changeRate, rate } = playerStore
 	const currentPath = currentFile.path.join('/')
+	const preloadControllerRef = useRef(null)
 	const [notes, setNotes] = useState(null)
 	const [dialog, setDialog] = useState(null)
-	const [optimizeStatus, setOptimizeStatus] = useState('Optimize')
+	const [preloadStatus, setPreloadStatus] = useState('Preload')
 	const [downloadStatus, setDownloadStatus] = useState('Download All')
+
+	useEffect(
+		() => () => {
+			if (preloadControllerRef.current?.infoHash === ih) {
+				preloadControllerRef.current.controller.abort()
+				preloadControllerRef.current = null
+			}
+		},
+		[ih]
+	)
 
 	const nextRate = useCallback(() => {
 		changeRate(((value) => (value > 2 ? 0.5 : value))(rate + 0.25))
@@ -267,6 +340,10 @@ export const BottomBar = observer(({ store }) => {
 	)
 
 	const addNote = useCallback(() => {
+		if (!currentPath) {
+			setNotice('Choose an audio file before adding a note.')
+			return
+		}
 		const notePath = currentPath
 		const noteTime = playerStore.getProgress()
 		setDialog({
@@ -281,21 +358,54 @@ export const BottomBar = observer(({ store }) => {
 			},
 			title: 'Add note',
 		})
-	}, [currentPath, ih, playerStore])
+	}, [currentPath, ih, playerStore, setNotice])
 
 	const showNotes = useCallback(async () => {
 		const fetchedNotes = await storage.getAllNotes(ih)
 		setNotes(fetchedNotes)
 	}, [ih])
 
+	const applyPreloadStatus = useCallback(
+		(status) => {
+			setPreloadStatus(preloadLabel(status))
+			setNotice(preloadNotice(status))
+		},
+		[setNotice]
+	)
+
 	const preloadBook = useCallback(async () => {
+		preloadControllerRef.current?.controller.abort()
+		const controller = new AbortController()
+		preloadControllerRef.current = { controller, infoHash: ih }
+		setPreloadStatus('Starting preload...')
+		setNotice('Starting server preload...')
 		try {
-			const status = await preloadTorrent(ih)
-			setNotice(status)
+			await preloadTorrent(ih)
+			if (controller.signal.aborted) {
+				return
+			}
+			const outcome = await pollPreload(
+				ih,
+				controller.signal,
+				applyPreloadStatus
+			)
+			if (outcome === 'timeout') {
+				setPreloadStatus('Preload still running')
+				setNotice(
+					'Server preload is still running after 30 minutes. Select Preload to check it again.'
+				)
+			}
 		} catch (error) {
-			setNotice(error instanceof Error ? error.message : String(error))
+			if (!controller.signal.aborted) {
+				setPreloadStatus('Preload failed')
+				setNotice(error instanceof Error ? error.message : String(error))
+			}
+		} finally {
+			if (preloadControllerRef.current?.controller === controller) {
+				preloadControllerRef.current = null
+			}
 		}
-	}, [ih, setNotice])
+	}, [applyPreloadStatus, ih, setNotice])
 
 	const handlePreload = useCallback(() => {
 		if (!ih) {
@@ -309,30 +419,6 @@ export const BottomBar = observer(({ store }) => {
 		})
 	}, [ih, preloadBook])
 
-	const optimizeBook = useCallback(async () => {
-		setOptimizeStatus('Processing...')
-		try {
-			const result = await store.concatAllFiles()
-			setOptimizeStatus(result ? 'Done' : 'Failed')
-		} catch (error) {
-			setOptimizeStatus('Error')
-			console.error(error)
-		} finally {
-			setTimeout(() => setOptimizeStatus('Optimize'), 3000)
-		}
-	}, [store])
-
-	const handleOptimize = useCallback(() => {
-		if (!ih) {
-			return
-		}
-		setDialog({
-			description: 'This will combine all files into one.',
-			onConfirm: optimizeBook,
-			title: 'Optimize downloaded files?',
-		})
-	}, [ih, optimizeBook])
-
 	const downloadAllFiles = useCallback(async () => {
 		setDownloadStatus('Downloading...')
 		try {
@@ -340,11 +426,11 @@ export const BottomBar = observer(({ store }) => {
 			setDownloadStatus(result ? 'Done' : 'Failed')
 		} catch (error) {
 			setDownloadStatus('Error')
-			console.error(error)
+			setNotice(error instanceof Error ? error.message : String(error))
 		} finally {
 			setTimeout(() => setDownloadStatus('Download All'), 3000)
 		}
-	}, [store])
+	}, [setNotice, store])
 
 	const handleDownloadAll = useCallback(() => {
 		if (!ih) {
@@ -389,10 +475,8 @@ export const BottomBar = observer(({ store }) => {
 			<Actions
 				downloadStatus={downloadStatus}
 				handleDownloadAll={handleDownloadAll}
-				handleOptimize={handleOptimize}
 				handlePreload={handlePreload}
-				optimizeStatus={optimizeStatus}
-				preloadStatus='Preload'
+				preloadStatus={preloadStatus}
 				store={store}
 			/>
 			<Button

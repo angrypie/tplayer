@@ -11,32 +11,38 @@
 - Styling: Tailwind CSS with CSS variables in `src/index.css`.
 - Storage: Dexie (IndexedDB) in `src/storage`.
 - Audio: Howler in `src/routes/Playlist/Player`.
-- Backend build: Go binary in `server/` via Makefile.
+- Backend: Bun + Hono + WebTorrent TypeScript modules in `server/`.
 
 ## Tooling prerequisites
 - Bun 1.4.0 (pinned in `package.json`).
-- Go toolchain for server builds.
 
 ## Common commands
 - Install JS deps: `bun install --frozen-lockfile`
 - Dev server (frontend): `bun run dev`
-- Build frontend (typecheck + Vite): `bun run build`
+- Build frontend and server bundle: `bun run build`
 - Preview build: `bun run preview`
 - Check formatting/lint: `bun run check`
 - Fix formatting/lint: `bun run fix`
 - Diagnose Ultracite: `bunx --bun ultracite doctor`
-- Build Go server: `make build-backend`
+- Build Hono server bundle: `make build-backend`
 - Build full prod bundle: `make prod`
-- Restore a snapshot and rebuild: `make restore`
+- Run foreground production: `make prod-run`
+- Print canonical production paths: `make production-config`
+- Install/start macOS LaunchAgent: `make launchctl-install`
+- Inspect macOS LaunchAgent: `make launchctl-status`
+- Stop macOS LaunchAgent: `make launchctl-stop`
+- Restore a production snapshot: `make restore`
 - Create snapshot tarball: `make snapshot`
 - Install dependencies: `make install-deps`
 - Cloudflare onboarding: see `cloudflare/onboarding.md`.
 
 ## Tests
-- No test runner configured; there are no `*.test.*` or `*.spec.*` files.
-- If you need a single-test command, add a runner (Vitest/Jest) first.
-- Use `bun run check`, `bun run build`, and `(cd server && go test ./...)` as
-  current CI-style checks.
+- Bun's test runner covers server integration and browser-storage behavior.
+- Playwright covers user flows against a real local WebTorrent swarm.
+- Use `bun run check`, `bun run build`, `bun run test`, and `bun run test:ui`
+  as the current CI-style checks.
+- Use `bun run benchmark` for measured streaming throughput and range latency.
+- Use `make test-macos` to verify terminal and LaunchAgent path parity.
 
 ## Project structure
 - Entry point: `src/main.tsx`
@@ -44,7 +50,10 @@
 - Routes: `src/routes/index.jsx`, with nested route folders.
 - UI primitives: `src/components/ui/*`
 - Shared helpers: `src/lib/utils.ts`, `src/utils/index.js`
-- Storage layer: `src/storage/index.js`
+- Storage layer: `src/storage/index.ts`
+- Server entry point: `server/index.ts`
+- Hono composition: `server/app.ts`
+- WebTorrent lifecycle: `server/torrent/manager.ts`
 
 ## Module resolution and aliases
 - TypeScript baseUrl is repo root.
@@ -102,8 +111,8 @@
 - Avoid direct state mutation in views unless current patterns do so.
 
 ## Data and storage
-- Dexie DB lives in `src/storage/index.js`.
-- Storage functions return `null` when not found; handle gracefully.
+- Dexie DB lives in `src/storage/index.ts`.
+- Storage lookups may return `null` when not found; handle gracefully.
 - Keep DB schema updates aligned with existing versioning.
 
 ## Error handling
@@ -117,8 +126,9 @@
 - Use `useLocation` for navigation and `Link` for links.
 
 ## Build outputs
-- Vite outputs to `dist/`; `make prod` moves it into `server/dist`.
-- Avoid editing `dist/` or `server/dist` manually.
+- Vite outputs to `dist/`; Bun outputs the externalized server bundle to
+  `build/`.
+- Avoid editing `dist/`, `build/`, or legacy `server/dist/` manually.
 
 ## Environment
 - `dev` server runs on `http://localhost:3000` with `--host`.
@@ -132,12 +142,11 @@
 - Match existing semicolon and indentation style in the file you edit.
 - Keep changes scoped; do not refactor unrelated areas.
 - For new UI, follow Tailwind + CSS variable theme.
-- When in doubt, run `npm run lint` before build.
+- When in doubt, run `bun run check` before build.
 
 ## Single-test guidance (if added later)
-- If Vitest is added, use `npm run test -- <pattern>` or `vitest <pattern>`.
-- If Jest is added, use `npm test -- <pattern>` or `jest <pattern>`.
-- Document new test commands here when a runner is introduced.
+- Use `bun test <path-or-pattern>` for a focused Bun test.
+- Use `bunx playwright test <path-or-pattern>` for a focused UI test.
 
 ## Files worth knowing
 - `src/routes/Playlist/Player/player.js` audio control with Howler.

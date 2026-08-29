@@ -1,56 +1,137 @@
 import { useLocalObservable } from 'mobx-react-lite'
+import { useState } from 'react'
 import { Player } from './player'
 
 export const maxVolume = 1
 export const rewindStep = 30
-export const defaultPlayerState = {
-	audio: null,
-	player: new Player(),
-	playerRef: {},
-	playing: false,
-	rate: 1,
-	volume: 0.7,
+
+const noOperation = () => undefined
+const defaultLifecycleHandlers = {
+	onEnd: noOperation,
+	onError: noOperation,
+	onPause: noOperation,
+}
+
+const revokeUrl = (url) => {
+	if (typeof url === 'string' && url.length > 0) {
+		URL.revokeObjectURL(url)
+	}
+}
+
+const invokeHandler = (handler, ...arguments_) => {
+	try {
+		const result = handler(...arguments_)
+		if (result instanceof Promise) {
+			result.catch(noOperation)
+		}
+	} catch {
+		// Lifecycle callbacks must not break Howler's event dispatch.
+	}
 }
 
 export const usePlayerStore = () => {
+	const [player] = useState(() => new Player())
 	const store = useLocalObservable(() => ({
-		...addState(() => store, defaultPlayerState),
+		audio: null,
 
 		changeRate(rate) {
 			const value = numberOrLimit(rate, 0.5, 4)
-			store.setRate(value)
+			store.rate = value
 			store.player.changeRate(value)
 		},
 
 		changeVolume(volume) {
-			store.player.changeVolume(volume)
+			const value = numberOrLimit(volume, 0, maxVolume)
+			store.volume = value
+			store.player.changeVolume(value)
+		},
+
+		clearSource() {
+			revokeUrl(store.audio)
+			store.audio = null
+			store.error = null
+			store.finishPlayback()
+			store.loaded = false
+			store.loading = false
+			player.unloadSource()
+		},
+
+		dispose() {
+			store.clearSource()
+			store.lifecycleHandlers = defaultLifecycleHandlers
+			player.dispose()
+		},
+		error: null,
+		finishPlayback() {
+			store.playWhenReady = false
+			store.playing = false
 		},
 
 		getDuration() {
-			return store.player.duration
+			return Math.max(store.player.duration, 1)
 		},
 
 		getProgress() {
 			return store.player.currentTime
 		},
 
-		//state getters and setters
-		newAudio(audio) {
-			if (!audio) {
-				return false
-			}
-			const wasPlaying = store.playing
-			store.setAudio(audio)
-			store.player.addUrl(audio)
-			if (wasPlaying) {
+		handleEnd(playbackState) {
+			store.finishPlayback()
+			invokeHandler(store.lifecycleHandlers.onEnd, playbackState)
+		},
+
+		handleError(error) {
+			store.error = error
+			store.loading = false
+			store.playWhenReady = false
+			store.playing = false
+			invokeHandler(store.lifecycleHandlers.onError, error)
+		},
+
+		handleLoad() {
+			store.error = null
+			store.loaded = true
+			store.loading = false
+			if (store.playWhenReady) {
+				store.playWhenReady = false
 				store.play()
 			}
-			return true
+		},
+
+		handlePause() {
+			store.playing = false
+			invokeHandler(store.lifecycleHandlers.onPause)
+		},
+
+		lifecycleHandlers: defaultLifecycleHandlers,
+		loaded: false,
+		loading: false,
+
+		loadSource({ autoplay = false, format, resumeTime = 0, url }) {
+			const shouldPlay = autoplay || store.playing
+			revokeUrl(store.audio)
+			store.audio = url
+			store.error = null
+			store.loaded = false
+			store.loading = true
+			store.playing = false
+			store.playWhenReady = shouldPlay
+			player.loadSource({
+				format,
+				rate: store.rate,
+				resumeTime,
+				url,
+				volume: store.volume,
+			})
 		},
 
 		pause() {
-			store.player.pause()
+			store.playWhenReady = false
+			const willEmitPause = store.player.pause()
 			store.playing = false
+			if (!willEmitPause) {
+				store.handlePause()
+			}
 		},
 
 		play() {
@@ -59,9 +140,27 @@ export const usePlayerStore = () => {
 				store.playing = true
 			}
 		},
+		player,
+		playing: false,
 
-		seekTo(p) {
-			store.player.seekTo(numberOrLimit(Math.round(p), 0, p))
+		playWhenReady: false,
+		rate: 1,
+
+		seekTo(position) {
+			const { duration } = store.player
+			const upperLimit = duration > 0 ? duration : Number.MAX_SAFE_INTEGER
+			store.player.seekTo(numberOrLimit(position, 0, upperLimit))
+		},
+
+		setLifecycleHandlers(handlers = {}) {
+			store.lifecycleHandlers = {
+				...defaultLifecycleHandlers,
+				...handlers,
+			}
+		},
+
+		setVolume(volume) {
+			store.volume = numberOrLimit(volume, 0, maxVolume)
 		},
 
 		togglePlaying(isPlaying) {
@@ -73,33 +172,25 @@ export const usePlayerStore = () => {
 				pause()
 			}
 		},
+		volume: 0.7,
 	}))
+
+	player.setCallbacks({
+		onEnd: store.handleEnd,
+		onError: store.handleError,
+		onLoad: store.handleLoad,
+		onPause: store.handlePause,
+	})
 
 	return store
 }
 
-function addState(getStore, state) {
-	const props = Object.keys(state)
-
-	return props.reduce((current, prop) => {
-		const method = `set${prop[0].toUpperCase() + prop.slice(1)}`
-		//init state
-		current[prop] = state[prop]
-		//defin  setters
-		current[method] = (value) => {
-			getStore()[prop] = value
-		}
-		return current
-	}, {})
-}
-
-//returns 'n' if it betweens 'a' and 'b' limits, or else closest limit.
-export const numberOrLimit = (n, a, b) => {
-	if (n < a) {
-		return a
+export const numberOrLimit = (number, minimum, maximum) => {
+	const numericValue = Number(number)
+	if (!Number.isFinite(numericValue)) {
+		return minimum
 	}
-	if (n > b) {
-		return b
-	}
-	return n
+	const lowerLimit = Math.min(minimum, maximum)
+	const upperLimit = Math.max(minimum, maximum)
+	return Math.min(Math.max(numericValue, lowerLimit), upperLimit)
 }

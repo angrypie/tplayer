@@ -1,5 +1,4 @@
 import { clsx } from 'clsx'
-import natsort from 'natsort'
 import { twMerge } from 'tailwind-merge'
 
 const COVER_NAME_PRIORITY = [
@@ -12,6 +11,42 @@ const COVER_NAME_PRIORITY = [
 ]
 const COVER_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
 const DEFAULT_NORMALIZE_PATH = (pathParts) => pathParts
+const AUDIO_FORMATS_BY_EXTENSION = new Map([
+	['aac', 'aac'],
+	['caf', 'caf'],
+	['flac', 'flac'],
+	['m4a', 'm4a'],
+	['m4b', 'm4b'],
+	['mp3', 'mp3'],
+	['mp4', 'mp4'],
+	['oga', 'oga'],
+	['ogg', 'ogg'],
+	['opus', 'opus'],
+	['wav', 'wav'],
+	['weba', 'weba'],
+	['webm', 'webm'],
+])
+const AUDIO_FORMATS_BY_MIME_TYPE = new Map([
+	['audio/aac', 'aac'],
+	['audio/flac', 'flac'],
+	['audio/mp4', 'm4a'],
+	['audio/mpeg', 'mp3'],
+	['audio/ogg', 'ogg'],
+	['audio/opus', 'opus'],
+	['audio/wav', 'wav'],
+	['audio/webm', 'webm'],
+	['audio/x-caf', 'caf'],
+	['audio/x-m4a', 'm4a'],
+	['audio/x-m4b', 'm4b'],
+	['audio/x-wav', 'wav'],
+])
+const naturalCollator = new Intl.Collator('en', {
+	numeric: true,
+	sensitivity: 'base',
+})
+
+export const naturalCompare = (left, right) =>
+	naturalCollator.compare(String(left), String(right))
 
 const normalizeFileName = (pathParts, normalizePathParts) => {
 	const normalizedParts = normalizePathParts(pathParts)
@@ -58,11 +93,45 @@ export const selectCoverCandidates = (
 		if (aPriority !== bPriority) {
 			return aPriority - bPriority
 		}
-		return natsort()(aName, bName)
+		return naturalCompare(aName, bName)
 	})
 }
 
-export const comparePath = (a, b) => a.join('/') === b.join('')
+const appendPathParts = (value, parts) => {
+	if (Array.isArray(value)) {
+		for (const entry of value) {
+			appendPathParts(entry, parts)
+		}
+		return
+	}
+	if (typeof value === 'string' && value.length > 0) {
+		parts.push(value)
+	}
+}
+
+export const normalizePath = (value) => {
+	const parts = []
+	appendPathParts(value, parts)
+	return parts
+}
+
+export const comparePath = (a, b) =>
+	normalizePath(a).join('/') === normalizePath(b).join('/')
+
+export const getAudioFormat = (file) => {
+	const mimeType = file?.mimeType?.split(';', 1)[0]?.trim().toLowerCase()
+	const mimeFormat = mimeType ? AUDIO_FORMATS_BY_MIME_TYPE.get(mimeType) : null
+	if (mimeFormat) {
+		return mimeFormat
+	}
+
+	const pathParts = normalizePath(file?.path)
+	const fileName = String(file?.name ?? pathParts.at(-1) ?? '').toLowerCase()
+	const extension = getFileExtension(fileName)
+	return AUDIO_FORMATS_BY_EXTENSION.get(extension) ?? null
+}
+
+export const isAudioFile = (file) => getAudioFormat(file) !== null
 
 export function cn(...inputs) {
 	return twMerge(clsx(inputs))

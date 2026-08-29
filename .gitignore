@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+build
 dist
 dist-ssr
 *.local
@@ -28,4 +29,10 @@ dist-ssr
 dev-dist
 tplayer.sqlite
 tplayer_history.sqlite
+*.sqlite-shm
+*.sqlite-wal
 tplayer
+tplayer-cache
+coverage
+playwright-report
+test-results

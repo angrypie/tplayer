@@ -1,11 +1,10 @@
 import { X } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import natsort from 'natsort'
 import { useCallback, useEffect, useState } from 'react'
 import { CoverImage } from '~/components/CoverImage'
 import { Nav } from '~/components/layout/Nav'
 import { Button } from '~/components/ui/button'
-import { comparePath } from '~/utils'
+import { comparePath, isAudioFile, naturalCompare } from '~/utils'
 import { ActionDialog } from './ActionDialog'
 import { COMBINED_FILES_PREFIX } from './store'
 import { formatBytes } from './utils'
@@ -39,7 +38,7 @@ const loadAndSortFiles = async (store, ih) => {
 	files.sort((a, b) => {
 		const aPath = stripCombinedPrefix(a.path).join('/')
 		const bPath = stripCombinedPrefix(b.path).join('/')
-		return natsort()(aPath, bPath)
+		return naturalCompare(aPath, bPath)
 	})
 	return files
 }
@@ -48,6 +47,7 @@ const TorrentFileRow = ({ currentFile, file, onDelete, onSelect }) => {
 	const { path } = file
 	const displayPath = stripCombinedPrefix(path).join('/')
 	const currentStyle = comparePath(path, currentFile.path) ? 'bg-gray-200' : ''
+	const playable = isAudioFile(file)
 
 	const handleSelect = () => {
 		onSelect(file)
@@ -63,7 +63,8 @@ const TorrentFileRow = ({ currentFile, file, onDelete, onSelect }) => {
 			className={`flex items-center justify-between hover:bg-gray-100 ${currentStyle}`}
 		>
 			<button
-				className='flex min-w-0 grow cursor-pointer items-center justify-between border-0 bg-transparent p-2 text-left'
+				className='flex min-w-0 grow cursor-pointer items-center justify-between border-0 bg-transparent p-2 text-left disabled:cursor-default disabled:opacity-60'
+				disabled={!playable}
 				onClick={handleSelect}
 				type='button'
 			>
@@ -87,24 +88,35 @@ const TorrentFileRow = ({ currentFile, file, onDelete, onSelect }) => {
 }
 
 export const TorrentInfo = observer(({ store, showCover }) => {
-	const { ih, torrentInfo, setTorrentInfo, currentFile, setCurrentFile } = store
+	const {
+		currentFile,
+		filesVersion,
+		ih,
+		setCurrentFile,
+		setTorrentInfo,
+		torrentInfo,
+	} = store
 	const [allFiles, setAllFiles] = useState([])
 
 	useEffect(() => {
-		setTorrentInfo(ih)
-	}, [ih, setTorrentInfo])
+		setAllFiles([])
+		setTorrentInfo(ih).catch(store.handlePlaybackError)
+	}, [ih, setTorrentInfo, store.handlePlaybackError])
 
 	const updateFiles = useCallback(async () => {
+		const requestedVersion = filesVersion
 		const files = await loadAndSortFiles(store, ih)
-		setAllFiles(files)
-	}, [ih, store])
+		if (requestedVersion === store.filesVersion && ih === store.ih) {
+			setAllFiles(files)
+		}
+	}, [filesVersion, ih, store])
 
 	useEffect(() => {
 		if (!(torrentInfo.name || torrentInfo.files.length)) {
 			return
 		}
-		updateFiles()
-	}, [torrentInfo, updateFiles])
+		updateFiles().catch(store.handlePlaybackError)
+	}, [store.handlePlaybackError, torrentInfo, updateFiles])
 
 	const handleDelete = useCallback(
 		async (file) => {
@@ -118,9 +130,9 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 
 	const handleClick = useCallback(
 		(file) => {
-			setCurrentFile(file)
+			setCurrentFile(file).catch(store.handlePlaybackError)
 		},
-		[setCurrentFile]
+		[setCurrentFile, store.handlePlaybackError]
 	)
 
 	return (
