@@ -19,6 +19,11 @@ interface FileRequestMetric {
 	status: number
 }
 
+interface RegistrationMetrics {
+	searchResolveRequests: number
+	torrentRegistrationRequests: number
+}
+
 const logger: AppLogger = {
 	debug: () => undefined,
 	error: (message, context) => {
@@ -59,6 +64,10 @@ const app = createApp({
 	}),
 })
 const fileRequests: FileRequestMetric[] = []
+const registrationMetrics: RegistrationMetrics = {
+	searchResolveRequests: 0,
+	torrentRegistrationRequests: 0,
+}
 let resourcesClosed = false
 
 const closeResources = async (): Promise<void> => {
@@ -108,11 +117,20 @@ const fetch = async (request: Request): Promise<Response> => {
 	if (pathname === '/__e2e/search-metrics') {
 		return Response.json(searchUpstream.snapshot())
 	}
+	if (pathname === '/__e2e/registration-metrics') {
+		return Response.json(registrationMetrics)
+	}
 	if (pathname === '/__e2e/cleanup' && request.method === 'POST') {
 		await closeResources()
 		return new Response(null, { status: 204 })
 	}
 
+	if (request.method === 'POST' && pathname === '/api/search/resolve') {
+		registrationMetrics.searchResolveRequests += 1
+	}
+	if (request.method === 'POST' && pathname === '/api/torrents') {
+		registrationMetrics.torrentRegistrationRequests += 1
+	}
 	const response = await app.fetch(request)
 	if (FILE_ROUTE_PATTERN.test(pathname)) {
 		fileRequests.push({

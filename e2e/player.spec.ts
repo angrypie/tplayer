@@ -1,12 +1,17 @@
 import { type APIResponse, expect, type Page, test } from '@playwright/test'
+import { CONTENT_USE_POLICY_VERSION } from '../src/search/contentPolicy'
+import { SEARCH_PREFERENCES_KEY } from '../src/search/preferences'
 
 const BACK_TO_LIBRARY_PATTERN = /Back to library/
+const AUTHORIZATION_CHECKBOX_PATTERN = /I confirm that I am legally authorized/
+const AUTHORIZED_UPLOAD_PATTERN = /authorized.+upload pieces/s
 const BYTE_RANGE_PATTERN = /^bytes=/
 const CLEAN_BOOK_PATTERN = /^Clean book data \(/
 const CONTENT_RANGE_PATTERN = /^bytes 0-/
 const OPEN_LIBRIVOX_RESULT_PATTERN = /^Open .+ from LibriVox$/
 const OPEN_TRACKER_RESULT_PATTERN = /^Open .+ from AudioBookBay$/
-const SEARCH_PREFERENCES_KEY = 'tplayer:search-provider-preferences'
+const TRACKER_ACKNOWLEDGEMENT_PATTERN =
+	/I understand and will use tracker results only/
 
 interface FixtureDescriptor {
 	files: Array<{
@@ -52,6 +57,11 @@ interface SearchUpstreamMetrics {
 	audiobookBaySearchRequests: number
 	internetArchiveSearchRequests: number
 	librivoxSearchRequests: number
+}
+
+interface RegistrationMetrics {
+	searchResolveRequests: number
+	torrentRegistrationRequests: number
 }
 
 const readJson = async <Value>(response: APIResponse): Promise<Value> => {
@@ -126,8 +136,16 @@ const openAction = async (page: Page, name: string): Promise<void> => {
 	await page.getByRole('button', { exact: true, name }).click()
 }
 
-const confirmAction = async (page: Page, title: string): Promise<void> => {
-	await expect(page.getByRole('dialog')).toContainText(title)
+const confirmAction = async (
+	page: Page,
+	title: string,
+	requiredText?: RegExp
+): Promise<void> => {
+	const dialog = page.getByRole('dialog')
+	await expect(dialog).toContainText(title)
+	if (requiredText) {
+		await expect(dialog).toContainText(requiredText)
+	}
 	await page.getByRole('button', { exact: true, name: 'Confirm' }).click()
 }
 
@@ -153,32 +171,38 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		'The deterministic swarm must include the first WAV'
 	).toBeDefined()
 
-	await test.step('free sources are searched first and the optional tracker persists through Settings', async () => {
+	await test.step('rights-labelled sources stay smooth while unverified sources require explicit authorization', async () => {
 		await page.goto('/')
 		await page.evaluate((storageKey) => {
 			localStorage.setItem(
 				storageKey,
 				JSON.stringify({
-					enabledOptionalProviderIds: ['librivox', 'removed-provider'],
+					enabledOptionalProviderIds: ['audiobook-bay', 'removed-provider'],
 				})
 			)
 		}, SEARCH_PREFERENCES_KEY)
 		const searchbox = page.getByRole('searchbox', {
-			name: 'Search audiobooks or paste a magnet link or info hash',
+			name: 'Search audiobooks or paste an authorized magnet link or info hash',
 		})
 		await searchbox.fill('private swarm')
 		await page.getByRole('button', { exact: true, name: 'search' }).click()
 		await expect(
-			page.getByRole('heading', { exact: true, name: 'Free audiobooks' })
+			page.getByRole('heading', {
+				exact: true,
+				name: 'Public-domain and rights-labelled audiobooks',
+			})
 		).toBeVisible()
 		await expect(page.getByText('LibriVox', { exact: true })).toBeVisible()
 		await expect(
 			page.getByText('Internet Archive', { exact: true })
 		).toBeVisible()
 		await expect(
+			page.getByRole('link', { exact: true, name: 'Rights information' })
+		).toBeVisible()
+		await expect(
 			page.getByRole('heading', {
 				exact: true,
-				name: 'Optional tracker results',
+				name: 'Unverified third-party results',
 			})
 		).toHaveCount(0)
 		let searchMetrics = await readJson<SearchUpstreamMetrics>(
@@ -192,7 +216,12 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 				(storageKey) => localStorage.getItem(storageKey),
 				SEARCH_PREFERENCES_KEY
 			)
-		).toBe(JSON.stringify({ enabledOptionalProviderIds: [] }))
+		).toBe(
+			JSON.stringify({
+				contentPolicyAcknowledgedVersion: null,
+				enabledOptionalProviderIds: [],
+			})
+		)
 
 		await page.getByRole('link', { name: 'Search settings' }).click()
 		await expect(
@@ -205,7 +234,105 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			name: 'AudioBookBay',
 		})
 		await expect(trackerCheckbox).not.toBeChecked()
-		await trackerCheckbox.check()
+		await expect(
+			page.getByText('Use only authorized content', { exact: true }).first()
+		).toBeVisible()
+
+		await trackerCheckbox.click()
+		let policyDialog = page.getByRole('dialog')
+		await expect(policyDialog).toContainText(
+			'Enable an unverified third-party source?'
+		)
+		await expect(policyDialog).toContainText(
+			'Never download or share a copyrighted audiobook through a torrent unless'
+		)
+		await expect(policyDialog).toContainText(
+			'Torrent transfers may automatically upload pieces'
+		)
+		await expect(trackerCheckbox).not.toBeChecked()
+		await expect(
+			policyDialog.getByRole('button', {
+				exact: true,
+				name: 'I understand — enable',
+			})
+		).toBeDisabled()
+		await policyDialog
+			.getByRole('button', { exact: true, name: 'Cancel' })
+			.click()
+		await expect(policyDialog).toHaveCount(0)
+		await expect(trackerCheckbox).not.toBeChecked()
+		searchMetrics = await readJson<SearchUpstreamMetrics>(
+			await page.request.get('/__e2e/search-metrics')
+		)
+		expect(searchMetrics.audiobookBaySearchRequests).toBe(0)
+		await page.reload()
+		await expect(trackerCheckbox).not.toBeChecked()
+
+		await page.evaluate((storageKey) => {
+			const setItem = localStorage.setItem.bind(localStorage)
+			Object.defineProperty(localStorage, 'setItem', {
+				configurable: true,
+				value: (key: string, value: string): void => {
+					if (key === storageKey) {
+						throw new DOMException(
+							'Storage is unavailable',
+							'QuotaExceededError'
+						)
+					}
+					setItem(key, value)
+				},
+			})
+		}, SEARCH_PREFERENCES_KEY)
+		await trackerCheckbox.click()
+		policyDialog = page.getByRole('dialog')
+		await policyDialog
+			.getByRole('checkbox', {
+				name: TRACKER_ACKNOWLEDGEMENT_PATTERN,
+			})
+			.check()
+		await policyDialog
+			.getByRole('button', {
+				exact: true,
+				name: 'I understand — enable',
+			})
+			.click()
+		await expect(policyDialog).toHaveCount(0)
+		await expect(
+			page
+				.getByRole('alert')
+				.getByText('Unable to save search settings in this browser', {
+					exact: true,
+				})
+		).toBeVisible()
+		await expect(trackerCheckbox).not.toBeChecked()
+		await page.evaluate(() => {
+			Reflect.deleteProperty(localStorage, 'setItem')
+		})
+
+		await trackerCheckbox.click()
+		policyDialog = page.getByRole('dialog')
+		await policyDialog
+			.getByRole('checkbox', {
+				name: TRACKER_ACKNOWLEDGEMENT_PATTERN,
+			})
+			.check()
+		await policyDialog
+			.getByRole('button', {
+				exact: true,
+				name: 'I understand — enable',
+			})
+			.click()
+		await expect(policyDialog).toHaveCount(0)
+		await expect(trackerCheckbox).toBeChecked()
+		expect(
+			await page.evaluate(
+				(storageKey) => JSON.parse(localStorage.getItem(storageKey) ?? 'null'),
+				SEARCH_PREFERENCES_KEY
+			)
+		).toEqual({
+			contentPolicyAcknowledgedVersion: CONTENT_USE_POLICY_VERSION,
+			enabledOptionalProviderIds: ['audiobook-bay'],
+		})
 		await page.reload()
 		await expect(
 			page.getByRole('checkbox', { name: 'AudioBookBay' })
@@ -217,8 +344,11 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		await expect(
 			page.getByRole('heading', {
 				exact: true,
-				name: 'Optional tracker results',
+				name: 'Unverified third-party results',
 			})
+		).toBeVisible()
+		await expect(
+			page.getByText('Rights status is unverified.', { exact: false })
 		).toBeVisible()
 		await expect(page.getByText('AudioBookBay', { exact: true })).toBeVisible()
 		searchMetrics = await readJson<SearchUpstreamMetrics>(
@@ -244,11 +374,63 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		const trackerResults = page.locator('section').filter({
 			has: page.getByRole('heading', {
 				exact: true,
-				name: 'Optional tracker results',
+				name: 'Unverified third-party results',
 			}),
 		})
+		const trackerMetricsBeforeOpen = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
+		searchMetrics = await readJson<SearchUpstreamMetrics>(
+			await page.request.get('/__e2e/search-metrics')
+		)
+		const trackerDetailsBeforeOpen = searchMetrics.audiobookBayDetailRequests
 		await trackerResults
 			.getByRole('button', { name: OPEN_TRACKER_RESULT_PATTERN })
+			.click()
+		let actionDialog = page.getByRole('dialog')
+		await expect(actionDialog).toContainText(
+			'Open an unverified tracker result?'
+		)
+		await expect(actionDialog).toContainText(
+			'Owning a physical or digital copy, or having a subscription, does not by itself authorize'
+		)
+		await expect(
+			actionDialog.getByRole('button', {
+				exact: true,
+				name: 'I am authorized — continue',
+			})
+		).toBeDisabled()
+		await actionDialog
+			.getByRole('button', { exact: true, name: 'Cancel' })
+			.click()
+		await expect(actionDialog).toHaveCount(0)
+		let registrationMetrics = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
+		searchMetrics = await readJson<SearchUpstreamMetrics>(
+			await page.request.get('/__e2e/search-metrics')
+		)
+		expect(registrationMetrics.searchResolveRequests).toBe(
+			trackerMetricsBeforeOpen.searchResolveRequests
+		)
+		expect(searchMetrics.audiobookBayDetailRequests).toBe(
+			trackerDetailsBeforeOpen
+		)
+
+		await trackerResults
+			.getByRole('button', { name: OPEN_TRACKER_RESULT_PATTERN })
+			.click()
+		actionDialog = page.getByRole('dialog')
+		await actionDialog
+			.getByRole('checkbox', {
+				name: AUTHORIZATION_CHECKBOX_PATTERN,
+			})
+			.check()
+		await actionDialog
+			.getByRole('button', {
+				exact: true,
+				name: 'I am authorized — continue',
+			})
 			.click()
 		await expect(page).toHaveURL(new RegExp(`/playlist/${fixture.infoHash}$`), {
 			timeout: 30_000,
@@ -256,7 +438,15 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		searchMetrics = await readJson<SearchUpstreamMetrics>(
 			await page.request.get('/__e2e/search-metrics')
 		)
-		expect(searchMetrics.audiobookBayDetailRequests).toBe(1)
+		registrationMetrics = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
+		expect(searchMetrics.audiobookBayDetailRequests).toBe(
+			trackerDetailsBeforeOpen + 1
+		)
+		expect(registrationMetrics.searchResolveRequests).toBe(
+			trackerMetricsBeforeOpen.searchResolveRequests + 1
+		)
 
 		await page.getByRole('link', { name: BACK_TO_LIBRARY_PATTERN }).click()
 		await searchbox.fill('private swarm')
@@ -264,9 +454,10 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		const freeResults = page.locator('section').filter({
 			has: page.getByRole('heading', {
 				exact: true,
-				name: 'Free audiobooks',
+				name: 'Public-domain and rights-labelled audiobooks',
 			}),
 		})
+		await expect(page.getByRole('dialog')).toHaveCount(0)
 		await freeResults
 			.getByRole('button', { name: OPEN_LIBRIVOX_RESULT_PATTERN })
 			.click()
@@ -280,15 +471,54 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		expect(searchMetrics.archiveMetadataRequests).toBe(1)
 	})
 
-	await test.step('register the magnet and render its real metadata', async () => {
+	await test.step('direct magnets send no registration request until authorization is confirmed', async () => {
 		await page.goto('/')
-		await page
-			.getByPlaceholder('audiobook title, magnet link, or info hash')
-			.fill(fixture.magnetUri)
+		const registrationMetricsBefore = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
+		const directSearchbox = page.getByPlaceholder(
+			'audiobook title or authorized magnet link'
+		)
+		await directSearchbox.fill(fixture.magnetUri)
 		await page.getByRole('button', { exact: true, name: 'search' }).click()
+		let actionDialog = page.getByRole('dialog')
+		await expect(actionDialog).toContainText(
+			'Open an unverified peer-to-peer source?'
+		)
+		await actionDialog
+			.getByRole('button', { exact: true, name: 'Cancel' })
+			.click()
+		await expect(actionDialog).toHaveCount(0)
+		await expect(directSearchbox).toHaveValue(fixture.magnetUri)
+		let registrationMetrics = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
+		expect(registrationMetrics.torrentRegistrationRequests).toBe(
+			registrationMetricsBefore.torrentRegistrationRequests
+		)
+
+		await page.getByRole('button', { exact: true, name: 'search' }).click()
+		actionDialog = page.getByRole('dialog')
+		await actionDialog
+			.getByRole('checkbox', {
+				name: AUTHORIZATION_CHECKBOX_PATTERN,
+			})
+			.check()
+		await actionDialog
+			.getByRole('button', {
+				exact: true,
+				name: 'I am authorized — continue',
+			})
+			.click()
 		await expect(page).toHaveURL(new RegExp(`/playlist/${fixture.infoHash}$`), {
 			timeout: 30_000,
 		})
+		registrationMetrics = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
+		expect(registrationMetrics.torrentRegistrationRequests).toBe(
+			registrationMetricsBefore.torrentRegistrationRequests + 1
+		)
 		await expect(page.getByText(fixture.name, { exact: true })).toBeVisible()
 		await Promise.all(
 			fixture.files.map(async (file) => {
@@ -355,7 +585,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 
 	await test.step('the UI starts a server preload that downloads exact torrent bytes', async () => {
 		await openAction(page, 'Preload')
-		await confirmAction(page, 'Preload book?')
+		await confirmAction(page, 'Preload book?', AUTHORIZED_UPLOAD_PATTERN)
 		await expect
 			.poll(
 				async () => {
@@ -379,7 +609,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 
 	await test.step('explicit download stores every real file in IndexedDB', async () => {
 		await openAction(page, 'Download All')
-		await confirmAction(page, 'Download all files?')
+		await confirmAction(page, 'Download all files?', AUTHORIZED_UPLOAD_PATTERN)
 		await expect
 			.poll(async () => await getCachedFileCount(page, fixture.infoHash), {
 				timeout: 30_000,

@@ -22,9 +22,21 @@ const MAGNET_PATTERN = /^magnet:/i
 
 export type AudiobookSearchStatus = 'error' | 'idle' | 'searching' | 'success'
 
+export interface ContentUseConfirmation {
+	action: 'open-direct' | 'open-tracker'
+	sourceLabel?: string
+}
+
+type PendingContentUse =
+	| { kind: 'direct'; source: string }
+	| { kind: 'tracker'; result: AudiobookSearchResult }
+
 export interface AudiobookSearchController {
 	activeQuery: string | null
+	cancelContentUseConfirmation: () => void
 	clearSearch: () => void
+	confirmContentUseConfirmation: () => Promise<void>
+	contentUseConfirmation: ContentUseConfirmation | null
 	error: string | null
 	hasSearched: boolean
 	isOpeningDirect: boolean
@@ -62,7 +74,10 @@ const loadEnabledTrackerProviderIds = async (
 	const preferences = loadSearchPreferences()
 	const providerIds = enabledTrackerProviderIds(preferences, catalog.providers)
 	if (providerIds.length !== preferences.enabledOptionalProviderIds.length) {
-		saveSearchPreferences({ enabledOptionalProviderIds: providerIds })
+		saveSearchPreferences({
+			...preferences,
+			enabledOptionalProviderIds: providerIds,
+		})
 	}
 	return providerIds
 }
@@ -73,6 +88,8 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 	const [error, setError] = useState<string | null>(null)
 	const [isOpeningDirect, setIsOpeningDirect] = useState(false)
 	const [openingResultKey, setOpeningResultKey] = useState<string | null>(null)
+	const [pendingContentUse, setPendingContentUse] =
+		useState<PendingContentUse | null>(null)
 	const [providerReports, setProviderReports] = useState<
 		SearchProviderReport[]
 	>([])
@@ -81,6 +98,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 	const [status, setStatus] = useState<AudiobookSearchStatus>('idle')
 	const [trackerProviderIds, setTrackerProviderIds] = useState<string[]>([])
 	const directRequestId = useRef(0)
+	const confirmationInFlight = useRef(false)
 	const resolveController = useRef<AbortController | null>(null)
 	const resolveRequestId = useRef(0)
 	const searchController = useRef<AbortController | null>(null)
@@ -114,6 +132,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 		setActiveQuery(null)
 		setError(null)
 		setOpeningResultKey(null)
+		setPendingContentUse(null)
 		setProviderReports([])
 		setQueryState('')
 		setResults([])
@@ -158,11 +177,12 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 			setError('Enter an audiobook title, magnet link, or info hash')
 			return
 		}
-		if (isOpeningDirect || openingResultKey) {
+		if (isOpeningDirect || openingResultKey || pendingContentUse) {
 			return
 		}
 		if (isTorrentReference(source)) {
-			await openDirectTorrent(source)
+			setError(null)
+			setPendingContentUse({ kind: 'direct', source })
 			return
 		}
 
@@ -213,13 +233,10 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 			setError(errorMessage(value, 'Unable to search for audiobooks'))
 			setStatus('error')
 		}
-	}, [isOpeningDirect, openDirectTorrent, openingResultKey, query])
+	}, [isOpeningDirect, openingResultKey, pendingContentUse, query])
 
-	const openResult = useCallback(
+	const resolveResult = useCallback(
 		async (result: AudiobookSearchResult): Promise<void> => {
-			if (isOpeningDirect || openingResultKey) {
-				return
-			}
 			resolveController.current?.abort()
 			const controller = new AbortController()
 			resolveController.current = controller
@@ -256,12 +273,71 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 				}
 			}
 		},
-		[isOpeningDirect, openingResultKey, setLocation]
+		[setLocation]
 	)
+
+	const openResult = useCallback(
+		async (result: AudiobookSearchResult): Promise<void> => {
+			if (isOpeningDirect || openingResultKey || pendingContentUse) {
+				return
+			}
+			if (trackerProviderIds.includes(result.providerId)) {
+				setError(null)
+				setPendingContentUse({ kind: 'tracker', result: { ...result } })
+				return
+			}
+			await resolveResult(result)
+		},
+		[
+			isOpeningDirect,
+			openingResultKey,
+			pendingContentUse,
+			resolveResult,
+			trackerProviderIds,
+		]
+	)
+
+	const cancelContentUseConfirmation = useCallback((): void => {
+		setPendingContentUse(null)
+	}, [])
+
+	const confirmContentUseConfirmation = useCallback(async (): Promise<void> => {
+		if (!(pendingContentUse && !confirmationInFlight.current)) {
+			return
+		}
+		const confirmedAction = pendingContentUse
+		confirmationInFlight.current = true
+		setPendingContentUse(null)
+		try {
+			if (confirmedAction.kind === 'direct') {
+				await openDirectTorrent(confirmedAction.source)
+			} else {
+				await resolveResult(confirmedAction.result)
+			}
+		} finally {
+			confirmationInFlight.current = false
+		}
+	}, [openDirectTorrent, pendingContentUse, resolveResult])
+
+	const contentUseConfirmation: ContentUseConfirmation | null =
+		pendingContentUse
+			? {
+					action:
+						pendingContentUse.kind === 'direct'
+							? 'open-direct'
+							: 'open-tracker',
+					...(pendingContentUse.kind === 'tracker'
+						? { sourceLabel: pendingContentUse.result.title }
+						: {}),
+				}
+			: null
 
 	return {
 		activeQuery,
+		cancelContentUseConfirmation,
 		clearSearch,
+		confirmContentUseConfirmation,
+		contentUseConfirmation,
 		error,
 		hasSearched: activeQuery !== null,
 		isOpeningDirect,

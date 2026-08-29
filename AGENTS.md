@@ -121,6 +121,22 @@
 - Avoid production `console.log`; use intentional error reporting where needed.
 - Avoid throwing from React render paths.
 
+## Content and source policy
+- Keep `CONTENT_POLICY.md`, `src/search/contentPolicy.ts`, and user-facing
+  warnings aligned.
+- Public-domain, rights-labelled, and unverified third-party sources must remain
+  visibly distinct. Do not describe source-supplied rights metadata as verified.
+- Optional tracker providers must remain disabled by default, require the
+  current versioned policy acknowledgement, and fail closed when the saved
+  version is missing or stale.
+- Opening a tracker result or direct magnet/info-hash reference must require a
+  per-action authorization confirmation before any resolve or registration
+  request is sent.
+- Torrent warnings must disclose possible peer upload. Do not imply that owning
+  another copy automatically authorizes third-party acquisition or sharing.
+- Bump `CONTENT_USE_POLICY_VERSION` when the acknowledgement's material meaning
+  changes so previously stored consent cannot silently carry forward.
+
 ## Routing
 - Wouter is used for navigation.
 - Use `useLocation` for navigation and `Link` for links.

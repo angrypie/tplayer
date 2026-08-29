@@ -104,6 +104,7 @@ describe('audiobook provider integration', () => {
 						defaultEnabled: boolean
 						id: string
 						kind: string
+						rights: string
 					}>
 				}
 				expect(providerPayload.providers).toEqual(
@@ -112,11 +113,17 @@ describe('audiobook provider integration', () => {
 							defaultEnabled: true,
 							id: 'librivox',
 							kind: 'free',
+							rights: 'public-domain-source',
+						}),
+						expect.objectContaining({
+							id: 'internet-archive',
+							rights: 'rights-labelled-source',
 						}),
 						expect.objectContaining({
 							defaultEnabled: false,
 							id: 'audiobook-bay',
 							kind: 'tracker',
+							rights: 'unverified-third-party',
 						}),
 					])
 				)
@@ -132,6 +139,11 @@ describe('audiobook provider integration', () => {
 				expect(freeSearch.results[0]?.description).toBe(
 					'A public-domain fixture from LibriVox.'
 				)
+				expect(
+					freeSearch.results.find(
+						({ providerId }) => providerId === 'internet-archive'
+					)?.rightsUrl
+				).toBe('https://creativecommons.org/licenses/by/4.0/')
 				expect(upstream.snapshot().audiobookBaySearchRequests).toBe(0)
 
 				const allResponse = await app.request(
@@ -272,6 +284,7 @@ describe('audiobook provider integration', () => {
 				id: 'librivox',
 				kind: 'free',
 				label: 'LibriVox',
+				rights: 'public-domain-source',
 			},
 			resolve: () => {
 				controller.abort()

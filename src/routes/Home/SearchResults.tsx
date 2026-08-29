@@ -1,4 +1,5 @@
 import { BookOpen, ExternalLink, SearchX } from 'lucide-react'
+import { ContentUseNotice } from '~/components/ContentUseNotice'
 import { Button } from '~/components/ui/button'
 import type {
 	AudiobookSearchResult,
@@ -24,6 +25,8 @@ interface ResultCardProps {
 
 interface ResultGroupProps {
 	description: string
+	hasContentUseNotice?: boolean
+	isInteractionBlocked: boolean
 	onOpen: (result: AudiobookSearchResult) => Promise<void>
 	openingResultKey: string | null
 	providerLabels: ReadonlyMap<string, string>
@@ -87,6 +90,7 @@ const ResultCard = ({
 }: ResultCardProps) => {
 	const coverUrl = safeExternalUrl(result.coverUrl)
 	const detailUrl = safeExternalUrl(result.detailUrl)
+	const rightsUrl = safeExternalUrl(result.rightsUrl)
 	const metadata = resultMetadata(result)
 
 	const handleOpen = async (): Promise<void> => {
@@ -154,6 +158,14 @@ const ResultCard = ({
 								</a>
 							</Button>
 						) : null}
+						{rightsUrl ? (
+							<Button asChild size='sm' variant='ghost'>
+								<a href={rightsUrl} rel='noopener noreferrer' target='_blank'>
+									Rights information
+									<ExternalLink aria-hidden='true' className='h-3.5 w-3.5' />
+								</a>
+							</Button>
+						) : null}
 					</div>
 				</div>
 			</div>
@@ -163,6 +175,8 @@ const ResultCard = ({
 
 const ResultGroup = ({
 	description,
+	hasContentUseNotice = false,
+	isInteractionBlocked,
 	onOpen,
 	openingResultKey,
 	providerLabels,
@@ -178,12 +192,15 @@ const ResultGroup = ({
 				<h2 className='font-bold text-xl'>{title}</h2>
 				<p className='text-muted-foreground text-sm'>{description}</p>
 			</div>
+			{hasContentUseNotice ? (
+				<ContentUseNotice compact includeThirdParty />
+			) : null}
 			<ul className='space-y-3'>
 				{results.map((result) => {
 					const key = searchResultKey(result)
 					return (
 						<ResultCard
-							isDisabled={openingResultKey !== null}
+							isDisabled={isInteractionBlocked || openingResultKey !== null}
 							isOpening={openingResultKey === key}
 							key={key}
 							onOpen={onOpen}
@@ -252,7 +269,10 @@ export const SearchResults = ({ controller }: SearchResultsProps) => {
 					) : null}
 				</div>
 				<Button
-					disabled={controller.openingResultKey !== null}
+					disabled={
+						controller.openingResultKey !== null ||
+						controller.contentUseConfirmation !== null
+					}
 					onClick={controller.clearSearch}
 					size='sm'
 					type='button'
@@ -264,7 +284,7 @@ export const SearchResults = ({ controller }: SearchResultsProps) => {
 
 			{controller.status === 'searching' ? (
 				<p className='py-8 text-center text-muted-foreground' role='status'>
-					Searching free audiobook sources…
+					Searching public-domain and rights-labelled sources…
 				</p>
 			) : null}
 
@@ -289,20 +309,23 @@ export const SearchResults = ({ controller }: SearchResultsProps) => {
 			) : null}
 
 			<ResultGroup
-				description='Public-domain and freely available catalogues.'
+				description='LibriVox public-domain recordings and Internet Archive items with source-supplied rights information. Verify each item where you live.'
+				isInteractionBlocked={controller.contentUseConfirmation !== null}
 				onOpen={controller.openResult}
 				openingResultKey={controller.openingResultKey}
 				providerLabels={providerLabels}
 				results={freeResults}
-				title='Free audiobooks'
+				title='Public-domain and rights-labelled audiobooks'
 			/>
 			<ResultGroup
-				description='Results from tracker sources you enabled in Settings.'
+				description='Rights status is unverified. Open only material you are authorized to download and share.'
+				hasContentUseNotice
+				isInteractionBlocked={controller.contentUseConfirmation !== null}
 				onOpen={controller.openResult}
 				openingResultKey={controller.openingResultKey}
 				providerLabels={providerLabels}
 				results={trackerResults}
-				title='Optional tracker results'
+				title='Unverified third-party results'
 			/>
 		</div>
 	)

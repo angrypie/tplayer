@@ -69,6 +69,7 @@ export class LibrivoxProvider implements AudiobookProvider {
 		id: 'librivox',
 		kind: 'free',
 		label: 'LibriVox',
+		rights: 'public-domain-source',
 	} as const
 
 	private readonly archiveResolver: ArchiveTorrentResolver

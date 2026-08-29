@@ -63,6 +63,7 @@ export class InternetArchiveProvider implements AudiobookProvider {
 		id: 'internet-archive',
 		kind: 'free',
 		label: 'Internet Archive',
+		rights: 'rights-labelled-source',
 	} as const
 
 	private readonly archiveResolver: ArchiveTorrentResolver
@@ -149,6 +150,7 @@ export class InternetArchiveProvider implements AudiobookProvider {
 		const sizeBytes = readFiniteNumber(document, 'item_size')
 		const language = firstString(document.language)
 		const publishedAt = firstString(document.publicdate ?? document.date)
+		const rightsUrl = safeHttpUrl(firstString(document.licenseurl))
 		return {
 			authors: readStringList(document.creator),
 			id: identifier,
@@ -160,6 +162,7 @@ export class InternetArchiveProvider implements AudiobookProvider {
 			...(downloads === undefined ? {} : { downloads }),
 			...(language ? { language } : {}),
 			...(publishedAt ? { publishedAt } : {}),
+			...(rightsUrl ? { rightsUrl } : {}),
 			...(sizeBytes === undefined ? {} : { sizeBytes }),
 		}
 	}

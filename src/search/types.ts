@@ -1,11 +1,17 @@
 export type SearchProviderKind = 'free' | 'tracker'
 
+export type SearchProviderRights =
+	| 'public-domain-source'
+	| 'rights-labelled-source'
+	| 'unverified-third-party'
+
 export interface SearchProviderDescriptor {
 	defaultEnabled: boolean
 	homepage: string
 	id: string
 	kind: SearchProviderKind
 	label: string
+	rights: SearchProviderRights
 }
 
 export interface AudiobookSearchResult {
@@ -20,6 +26,7 @@ export interface AudiobookSearchResult {
 	language?: string
 	providerId: string
 	publishedAt?: string
+	rightsUrl?: string
 	sizeBytes?: number
 	title: string
 }

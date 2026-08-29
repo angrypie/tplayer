@@ -5,6 +5,16 @@ runs the Hono HTTP application and a shared server-side WebTorrent client, so
 metadata discovery, byte-range media streaming, background downloads, history,
 and the production UI all share one lifecycle.
 
+## Responsible content use
+
+TPlayer is for public-domain, openly licensed, self-created, or otherwise
+explicitly authorized audiobooks. Never download or share a copyrighted work
+without authorization. BitTorrent transfers may upload pieces to other peers,
+and owning another copy does not by itself authorize obtaining or uploading a
+third-party torrent copy. Read the full [content policy](CONTENT_POLICY.md)
+before enabling third-party tracker sources or opening direct peer-to-peer
+references.
+
 ## Requirements
 
 - [Bun 1.4.0](https://bun.sh/docs/installation)
@@ -47,22 +57,28 @@ real media bytes through Hono. It does not depend on public trackers or peers.
 
 ## Audiobook search
 
-Text entered on the home screen is searched across free audiobook catalogues
-before the local library is shown. Direct magnet links and 40-character or
-base32 info hashes keep their existing behavior.
+Text entered on the home screen is searched across public-domain and
+rights-labelled audiobook catalogues before the local library is shown. Direct
+magnet links and 40-character or base32 info hashes remain supported, but they
+require an explicit lawful-use confirmation before any registration request is
+sent.
 
 - [LibriVox](https://librivox.org) and audiobook records from the
   [Internet Archive](https://archive.org) are always enabled. Search results are
   resolved through the Archive metadata API to its published torrent hash and
-  stable web seed.
+  stable web seed. LibriVox describes its recordings as public domain in the
+  United States. Archive results include source-supplied rights information;
+  neither label replaces checking the individual item where you live.
 - AudioBookBay is an optional tracker source. It is disabled by default and can
   be enabled under **Settings → Audiobook search sources**. The preference is
-  stored in the current browser. Tracker content is supplied by third parties;
-  users remain responsible for deciding whether a result is lawful to access
-  in their jurisdiction.
+  stored in the current browser only after a versioned content-policy
+  acknowledgement. AudioBookBay is independently operated; its inclusion is an
+  integration example, not an endorsement or a claim that its listings are
+  authorized. Every tracker result requires a separate confirmation before it
+  is resolved.
 - Provider failures are isolated, so one unavailable catalogue does not hide
-  usable results from another source. Free results are de-duplicated and always
-  displayed before optional tracker results.
+  usable results from another source. Public-domain and rights-labelled results
+  are de-duplicated and always displayed before unverified tracker results.
 
 Providers implement the small contract in `server/search/types.ts` and are
 registered in `server/search/service.ts`. Browser code talks only to

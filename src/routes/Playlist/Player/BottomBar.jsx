@@ -413,7 +413,7 @@ export const BottomBar = observer(({ store }) => {
 		}
 		setDialog({
 			description:
-				'This will preload the book to the server. The data will not be loaded to your device until you start playing.',
+				'Preload only if you are authorized to download and share this book. The server transfer may upload pieces to peers. Data is not stored offline on this device until you play or download it.',
 			onConfirm: preloadBook,
 			title: 'Preload book?',
 		})
@@ -437,7 +437,8 @@ export const BottomBar = observer(({ store }) => {
 			return
 		}
 		setDialog({
-			description: 'This will download all files to your device.',
+			description:
+				'Download only if you are authorized to obtain and share this book. This stores every file on your device, and the peer-to-peer transfer may upload pieces to others.',
 			onConfirm: downloadAllFiles,
 			title: 'Download all files?',
 		})

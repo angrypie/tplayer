@@ -7,13 +7,17 @@ import {
 	useState,
 } from 'react'
 import { Link } from 'wouter'
+import { ContentUseDialog } from '~/components/ContentUseDialog'
+import { ContentUseNotice } from '~/components/ContentUseNotice'
 import { Nav } from '~/components/layout/Nav'
 import { ThemeToggle } from '~/components/theme-toggle'
 import { Button } from '~/components/ui/button'
 import { getSearchProviders } from '~/search/api'
+import { CONTENT_USE_POLICY_VERSION } from '~/search/contentPolicy'
 import {
 	enabledTrackerProviderIds,
 	loadSearchPreferences,
+	type SearchPreferences,
 	saveSearchPreferences,
 } from '~/search/preferences'
 import type { SearchProviderDescriptor } from '~/search/types'
@@ -50,13 +54,29 @@ const ProviderHomepage = ({ homepage, label }: ProviderHomepageProps) => {
 
 const supportedSavedProviderIds = (
 	providers: readonly SearchProviderDescriptor[]
-): string[] => {
+): SearchPreferences => {
 	const preferences = loadSearchPreferences()
 	const providerIds = enabledTrackerProviderIds(preferences, providers)
-	if (providerIds.length !== preferences.enabledOptionalProviderIds.length) {
-		saveSearchPreferences({ enabledOptionalProviderIds: providerIds })
+	const normalizedPreferences = {
+		...preferences,
+		enabledOptionalProviderIds: providerIds,
 	}
-	return providerIds
+	if (
+		JSON.stringify(providerIds) !==
+		JSON.stringify(preferences.enabledOptionalProviderIds)
+	) {
+		saveSearchPreferences(normalizedPreferences)
+	}
+	return normalizedPreferences
+}
+
+const freeProviderDescription = (
+	provider: SearchProviderDescriptor
+): string => {
+	if (provider.rights === 'public-domain-source') {
+		return 'This source describes its recordings as public domain in the United States. Verify their status where you live.'
+	}
+	return 'Results have rights information supplied by the source. TPlayer does not guarantee that label; review each item before opening it.'
 }
 
 const TrackerProviderRow = ({
@@ -83,8 +103,8 @@ const TrackerProviderRow = ({
 						{provider.label}
 					</label>
 					<p className='mt-1 text-muted-foreground text-sm'>
-						Include results from this tracker when you search. Tracker sources
-						are off until you enable them.
+						This independent tracker is off by default. TPlayer does not verify
+						or endorse its listings or their rights status.
 					</p>
 					<div className='mt-2'>
 						<ProviderHomepage
@@ -99,11 +119,14 @@ const TrackerProviderRow = ({
 }
 
 const Settings = () => {
-	const [enabledProviderIds, setEnabledProviderIds] = useState<string[]>(
-		() => loadSearchPreferences().enabledOptionalProviderIds
-	)
 	const [error, setError] = useState<string | null>(null)
 	const [isLoading, setIsLoading] = useState(true)
+	const [pendingProviderId, setPendingProviderId] = useState<string | null>(
+		null
+	)
+	const [preferences, setPreferences] = useState<SearchPreferences>(() =>
+		loadSearchPreferences()
+	)
 	const [providers, setProviders] = useState<SearchProviderDescriptor[]>([])
 	const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
@@ -114,7 +137,7 @@ const Settings = () => {
 				const catalog = await getSearchProviders(controller.signal)
 				if (!controller.signal.aborted) {
 					setProviders(catalog.providers)
-					setEnabledProviderIds(supportedSavedProviderIds(catalog.providers))
+					setPreferences(supportedSavedProviderIds(catalog.providers))
 					setError(null)
 				}
 			} catch (value) {
@@ -139,31 +162,77 @@ const Settings = () => {
 
 	const handleProviderChange = useCallback(
 		(providerId: string, enabled: boolean): void => {
-			const nextProviderIds = enabled
-				? [...new Set([...enabledProviderIds, providerId])].sort()
-				: enabledProviderIds.filter((id) => id !== providerId)
-			const saved = saveSearchPreferences({
-				enabledOptionalProviderIds: nextProviderIds,
-			})
+			if (enabled) {
+				setPendingProviderId(providerId)
+				return
+			}
+			const nextPreferences = {
+				...preferences,
+				enabledOptionalProviderIds:
+					preferences.enabledOptionalProviderIds.filter(
+						(id) => id !== providerId
+					),
+			}
+			const saved = saveSearchPreferences(nextPreferences)
 			if (!saved) {
 				setSaveMessage(null)
 				setError('Unable to save search settings in this browser')
 				return
 			}
-			setEnabledProviderIds(nextProviderIds)
+			setPreferences(nextPreferences)
 			setError(null)
 			setSaveMessage('Search settings saved')
 		},
-		[enabledProviderIds]
+		[preferences]
 	)
+
+	const handleConfirmProvider = useCallback((): void => {
+		if (!pendingProviderId) {
+			return
+		}
+		const nextPreferences = {
+			contentPolicyAcknowledgedVersion: CONTENT_USE_POLICY_VERSION,
+			enabledOptionalProviderIds: [
+				...new Set([
+					...preferences.enabledOptionalProviderIds,
+					pendingProviderId,
+				]),
+			].sort(),
+		}
+		if (!saveSearchPreferences(nextPreferences)) {
+			setSaveMessage(null)
+			setError('Unable to save search settings in this browser')
+			setPendingProviderId(null)
+			return
+		}
+		setPreferences(nextPreferences)
+		setPendingProviderId(null)
+		setError(null)
+		setSaveMessage('Search settings saved')
+	}, [pendingProviderId, preferences.enabledOptionalProviderIds])
+
+	const handleCancelProvider = useCallback((): void => {
+		setPendingProviderId(null)
+	}, [])
 
 	const freeProviders = providers.filter((provider) => provider.kind === 'free')
 	const trackerProviders = providers.filter(
 		(provider) => provider.kind === 'tracker'
 	)
+	const enabledProviderIds = enabledTrackerProviderIds(preferences, providers)
+	const pendingProvider = providers.find(
+		(provider) => provider.id === pendingProviderId
+	)
 
 	return (
 		<div className='flex h-screen flex-col'>
+			<ContentUseDialog
+				action='enable-tracker'
+				isOpen={pendingProvider !== undefined}
+				onCancel={handleCancelProvider}
+				onConfirm={handleConfirmProvider}
+				sourceLabel={pendingProvider?.label}
+			/>
 			<Nav className=''>
 				<Button aria-label='Back to library' asChild variant='outline'>
 					<Link href='/'>
@@ -184,10 +253,13 @@ const Settings = () => {
 							Audiobook search sources
 						</h2>
 						<p className='mt-1 text-muted-foreground text-sm'>
-							Free catalogues are searched first. Tracker sources are optional
-							and stay off until you choose to include them.
+							Public-domain and rights-labelled catalogues are searched first.
+							Unverified tracker sources are optional and stay off until you
+							explicitly acknowledge the content policy.
 						</p>
 					</div>
+
+					<ContentUseNotice includeThirdParty />
 
 					{isLoading ? (
 						<p className='text-muted-foreground' role='status'>
@@ -212,7 +284,9 @@ const Settings = () => {
 
 					{freeProviders.length > 0 ? (
 						<div className='space-y-2'>
-							<h3 className='font-semibold text-lg'>Free sources</h3>
+							<h3 className='font-semibold text-lg'>
+								Public-domain and rights-labelled sources
+							</h3>
 							<ul className='space-y-2'>
 								{freeProviders.map((provider) => (
 									<li
@@ -230,6 +304,9 @@ const Settings = () => {
 														Always on
 													</span>
 												</div>
+												<p className='mt-1 text-muted-foreground text-sm'>
+													{freeProviderDescription(provider)}
+												</p>
 												<div className='mt-2'>
 													<ProviderHomepage
 														homepage={provider.homepage}
@@ -247,8 +324,12 @@ const Settings = () => {
 					{isLoading ? null : (
 						<div className='space-y-2'>
 							<h3 className='font-semibold text-lg'>
-								Optional tracker sources
+								Optional unverified tracker sources
 							</h3>
+							<p className='text-muted-foreground text-sm'>
+								Enabling a tracker requires a policy acknowledgement. Opening a
+								tracker result still requires confirmation each time.
+							</p>
 							{trackerProviders.length > 0 ? (
 								<ul className='space-y-2'>
 									{trackerProviders.map((provider) => (

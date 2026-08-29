@@ -6,6 +6,7 @@ import type {
 	SearchProviderDescriptor,
 	SearchProviderKind,
 	SearchProviderReport,
+	SearchProviderRights,
 	SearchProviderState,
 } from './types'
 
@@ -107,6 +108,17 @@ const providerKind = (value: unknown): SearchProviderKind => {
 	throw invalidResponse('Search provider included an invalid kind')
 }
 
+const providerRights = (value: unknown): SearchProviderRights => {
+	if (
+		value === 'public-domain-source' ||
+		value === 'rights-labelled-source' ||
+		value === 'unverified-third-party'
+	) {
+		return value
+	}
+	throw invalidResponse('Search provider included invalid rights metadata')
+}
+
 const providerState = (value: unknown): SearchProviderState => {
 	if (value === 'ok' || value === 'error') {
 		return value
@@ -127,6 +139,7 @@ const parseProvider = (value: unknown): SearchProviderDescriptor => {
 		id: requiredString(value, 'id', 'Search provider'),
 		kind: providerKind(value.kind),
 		label: requiredString(value, 'label', 'Search provider'),
+		rights: providerRights(value.rights),
 	}
 }
 
@@ -143,6 +156,7 @@ const parseSearchResult = (value: unknown): AudiobookSearchResult => {
 	const format = optionalString(value, 'format', context)
 	const language = optionalString(value, 'language', context)
 	const publishedAt = optionalString(value, 'publishedAt', context)
+	const rightsUrl = optionalString(value, 'rightsUrl', context)
 	const sizeBytes = optionalNumber(value, 'sizeBytes', context)
 	return {
 		authors: stringArray(value, 'authors', context),
@@ -157,6 +171,7 @@ const parseSearchResult = (value: unknown): AudiobookSearchResult => {
 		...(format ? { format } : {}),
 		...(language ? { language } : {}),
 		...(publishedAt ? { publishedAt } : {}),
+		...(rightsUrl ? { rightsUrl } : {}),
 		...(sizeBytes === undefined ? {} : { sizeBytes }),
 	}
 }

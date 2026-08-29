@@ -1,12 +1,15 @@
+import { CONTENT_USE_POLICY_VERSION } from './contentPolicy'
 import type { SearchProviderDescriptor } from './types'
 
 const SEARCH_PREFERENCES_KEY = 'tplayer:search-provider-preferences'
 
 export interface SearchPreferences {
+	contentPolicyAcknowledgedVersion: number | null
 	enabledOptionalProviderIds: string[]
 }
 
 const EMPTY_PREFERENCES: SearchPreferences = {
+	contentPolicyAcknowledgedVersion: null,
 	enabledOptionalProviderIds: [],
 }
 
@@ -32,10 +35,23 @@ const normalizeProviderIds = (value: unknown): string[] => {
 	return [...new Set(providerIds.map((providerId) => providerId.trim()))].sort()
 }
 
+const acknowledgedPolicyVersion = (value: unknown): number | null =>
+	typeof value === 'number' && Number.isInteger(value) && value > 0
+		? value
+		: null
+
+export const hasCurrentContentPolicyAcknowledgement = (
+	preferences: SearchPreferences
+): boolean =>
+	preferences.contentPolicyAcknowledgedVersion === CONTENT_USE_POLICY_VERSION
+
 export const enabledTrackerProviderIds = (
 	preferences: SearchPreferences,
 	providers: readonly SearchProviderDescriptor[]
 ): string[] => {
+	if (!hasCurrentContentPolicyAcknowledgement(preferences)) {
+		return []
+	}
 	const trackerIds = new Set(
 		providers
 			.filter((provider) => provider.kind === 'tracker')
@@ -61,8 +77,12 @@ export const loadSearchPreferences = (
 		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
 			return EMPTY_PREFERENCES
 		}
-		const { enabledOptionalProviderIds } = value as Record<string, unknown>
+		const { contentPolicyAcknowledgedVersion, enabledOptionalProviderIds } =
+			value as Record<string, unknown>
 		return {
+			contentPolicyAcknowledgedVersion: acknowledgedPolicyVersion(
+				contentPolicyAcknowledgedVersion
+			),
 			enabledOptionalProviderIds: normalizeProviderIds(
 				enabledOptionalProviderIds
 			),
@@ -80,12 +100,18 @@ export const saveSearchPreferences = (
 		return false
 	}
 	try {
+		const contentPolicyAcknowledgedVersion = acknowledgedPolicyVersion(
+			preferences.contentPolicyAcknowledgedVersion
+		)
+		const enabledOptionalProviderIds =
+			contentPolicyAcknowledgedVersion === CONTENT_USE_POLICY_VERSION
+				? normalizeProviderIds(preferences.enabledOptionalProviderIds)
+				: []
 		storage.setItem(
 			SEARCH_PREFERENCES_KEY,
 			JSON.stringify({
-				enabledOptionalProviderIds: normalizeProviderIds(
-					preferences.enabledOptionalProviderIds
-				),
+				contentPolicyAcknowledgedVersion,
+				enabledOptionalProviderIds,
 			})
 		)
 		return true

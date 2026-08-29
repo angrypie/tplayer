@@ -63,6 +63,7 @@ export class AudiobookBayProvider implements AudiobookProvider {
 		id: 'audiobook-bay',
 		kind: 'tracker',
 		label: 'AudioBookBay',
+		rights: 'unverified-third-party',
 	} as const
 
 	private readonly endpoints: AudiobookSearchEndpoints

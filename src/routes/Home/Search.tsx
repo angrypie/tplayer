@@ -13,7 +13,9 @@ export const Search: React.FC<SearchProps> = ({ controller }) => {
 	const errorId = useId()
 	const inputId = useId()
 	const isOpening =
-		controller.isOpeningDirect || controller.openingResultKey !== null
+		controller.isOpeningDirect ||
+		controller.openingResultKey !== null ||
+		controller.contentUseConfirmation !== null
 
 	const handleSubmit = async (
 		event: FormEvent<HTMLFormElement>
@@ -54,7 +56,7 @@ export const Search: React.FC<SearchProps> = ({ controller }) => {
 			onSubmit={handleSubmit}
 		>
 			<label className='sr-only' htmlFor={inputId}>
-				Search audiobooks or paste a magnet link or info hash
+				Search audiobooks or paste an authorized magnet link or info hash
 			</label>
 			<div className='flex h-12 w-full items-center gap-2'>
 				<Input
@@ -63,7 +65,7 @@ export const Search: React.FC<SearchProps> = ({ controller }) => {
 					disabled={isOpening}
 					id={inputId}
 					onChange={handleChange}
-					placeholder='audiobook title, magnet link, or info hash'
+					placeholder='audiobook title or authorized magnet link'
 					type='search'
 					value={controller.query}
 				/>

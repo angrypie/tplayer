@@ -5,12 +5,18 @@ export type AudiobookProviderId =
 
 export type AudiobookProviderKind = 'free' | 'tracker'
 
+export type AudiobookProviderRights =
+	| 'public-domain-source'
+	| 'rights-labelled-source'
+	| 'unverified-third-party'
+
 export interface AudiobookProviderDescriptor {
 	defaultEnabled: boolean
 	homepage: string
 	id: AudiobookProviderId
 	kind: AudiobookProviderKind
 	label: string
+	rights: AudiobookProviderRights
 }
 
 export interface AudiobookSearchResult {
@@ -25,6 +31,7 @@ export interface AudiobookSearchResult {
 	language?: string
 	providerId: AudiobookProviderId
 	publishedAt?: string
+	rightsUrl?: string
 	sizeBytes?: number
 	title: string
 }
