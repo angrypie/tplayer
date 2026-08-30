@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Player } from './player'
 
 export const maxVolume = 1
-export const rewindStep = 30
+export const playbackJumpSeconds = 30
 
 const noOperation = () => undefined
 const defaultLifecycleHandlers = {

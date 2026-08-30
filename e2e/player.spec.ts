@@ -6,6 +6,7 @@ const BACK_TO_LIBRARY_PATTERN = /Back to library/
 const AUTHORIZATION_CHECKBOX_PATTERN = /I confirm that I am legally authorized/
 const AUTHORIZED_UPLOAD_PATTERN = /authorized.+upload pieces/s
 const AUDIO_FILE_PATH_PATTERN = /\.(?:m4a|m4b|mp3|ogg|opus|wav)$/i
+const BACKWARD_JUMP_LABEL_PATTERN = /^Back \d+ seconds$/
 const BYTE_RANGE_PATTERN = /^bytes=/
 const CACHE_CHUNK_BYTES = 1024 * 1024
 const CLEAR_OFFLINE_PATTERN = /^Clear offline data \(/
@@ -14,9 +15,13 @@ const FRESH_FRONTEND_CACHE_CONTROL = 'no-cache, no-store, must-revalidate'
 const HASHED_SCRIPT_PATH_PATTERN = /^\/assets\/.+\.js$/
 const HASHED_SCRIPT_PATTERN = /<script[^>]+src="(\/assets\/[^"]+\.js)"/
 const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+const JUMP_TIME_PATTERN = /^\d+$/
 const OFFLINE_CACHE_PURPOSE = 'offline-cache'
 const OPEN_LIBRIVOX_RESULT_PATTERN = /^Open .+ from LibriVox$/
 const OPEN_TRACKER_RESULT_PATTERN = /^Open .+ from AudioBookBay$/
+const FORWARD_JUMP_LABEL_PATTERN = /^Forward \d+ seconds$/
+const PLAYBACK_START_SAMPLES_KEY = '__tplayerPlaybackStartSamples'
+const TIME_LABEL_PATTERN = /^\d+:\d{2}$/
 const TRACKER_ACKNOWLEDGEMENT_PATTERN =
 	/I understand and will use tracker results only/
 
@@ -391,8 +396,132 @@ test('a full browser quota keeps real range playback online without starting an 
 		name: new RegExp(firstAudio?.name ?? '^$'),
 	})
 	await currentFileRow.click()
+	const backwardButton = page.getByRole('button', {
+		name: BACKWARD_JUMP_LABEL_PATTERN,
+	})
+	const forwardButton = page.getByRole('button', {
+		name: FORWARD_JUMP_LABEL_PATTERN,
+	})
+	const jumpTime = await backwardButton.innerText()
+	expect(jumpTime).toMatch(JUMP_TIME_PATTERN)
+	await expect(forwardButton).toHaveText(jumpTime)
+	const playbackSlider = page.getByRole('slider', {
+		name: 'Playback position',
+	})
+	await expect
+		.poll(
+			async () => Number(await playbackSlider.getAttribute('aria-valuemax')),
+			{ timeout: 20_000 }
+		)
+		.toBeGreaterThan(30)
+	const sliderBounds = await playbackSlider.boundingBox()
+	expect(sliderBounds).not.toBeNull()
+	if (!sliderBounds) {
+		throw new Error('The playback slider has no visible bounds')
+	}
+	const sliderY = sliderBounds.y + sliderBounds.height / 2
+	await page.mouse.move(sliderBounds.x + sliderBounds.width * 0.2, sliderY)
+	await page.mouse.down()
+	await page.mouse.move(sliderBounds.x + sliderBounds.width * 0.6, sliderY, {
+		steps: 8,
+	})
+	const seekPreview = page.getByTestId('seek-preview')
+	await expect(seekPreview).toBeVisible()
+	await expect(seekPreview).toHaveText(TIME_LABEL_PATTERN)
+	const duration = Number(await playbackSlider.getAttribute('aria-valuemax'))
+	expect(
+		Number(await playbackSlider.getAttribute('aria-valuenow'))
+	).toBeGreaterThan(duration * 0.5)
+	await page.mouse.up()
+	await expect(seekPreview).toHaveCount(0)
+	await expect
+		.poll(async () =>
+			Number(await playbackSlider.getAttribute('aria-valuenow'))
+		)
+		.toBeGreaterThan(duration * 0.5)
+	const positionBeforeTouch = Number(
+		await playbackSlider.getAttribute('aria-valuenow')
+	)
+	const browserSession = await page.context().newCDPSession(page)
+	await browserSession.send('Emulation.setTouchEmulationEnabled', {
+		enabled: true,
+		maxTouchPoints: 1,
+	})
+	const touchStartX = Math.round(sliderBounds.x + sliderBounds.width * 0.9)
+	const touchActivationX = Math.round(touchStartX - sliderBounds.width * 0.1)
+	const touchMoveX = Math.round(touchActivationX - sliderBounds.width * 0.1)
+	const touchY = Math.round(sliderY)
+	await browserSession.send('Input.dispatchTouchEvent', {
+		touchPoints: [{ x: touchStartX, y: touchY }],
+		type: 'touchStart',
+	})
+	await expect(seekPreview).toBeVisible()
+	expect(
+		Math.abs(
+			Number(await playbackSlider.getAttribute('aria-valuenow')) -
+				positionBeforeTouch
+		)
+	).toBeLessThan(duration * 0.01)
+	await browserSession.send('Input.dispatchTouchEvent', {
+		touchPoints: [{ x: touchActivationX, y: touchY }],
+		type: 'touchMove',
+	})
+	await playbackSlider.evaluate(
+		() =>
+			new Promise((resolve) => {
+				requestAnimationFrame(() => requestAnimationFrame(resolve))
+			})
+	)
+	expect(
+		Math.abs(
+			Number(await playbackSlider.getAttribute('aria-valuenow')) -
+				positionBeforeTouch
+		)
+	).toBeLessThan(duration * 0.01)
+	await browserSession.send('Input.dispatchTouchEvent', {
+		touchPoints: [{ x: touchMoveX, y: touchY }],
+		type: 'touchMove',
+	})
+	await expect
+		.poll(async () =>
+			Number(await playbackSlider.getAttribute('aria-valuenow'))
+		)
+		.toBeLessThan(positionBeforeTouch - duration * 0.05)
+	await browserSession.send('Input.dispatchTouchEvent', {
+		touchPoints: [],
+		type: 'touchEnd',
+	})
+	await expect(seekPreview).toHaveCount(0)
+	await browserSession.send('Emulation.setTouchEmulationEnabled', {
+		enabled: false,
+	})
+	await browserSession.detach()
+	const positionBeforePlay = Number(
+		await playbackSlider.getAttribute('aria-valuenow')
+	)
+	await playbackSlider.evaluate((slider, samplesKey) => {
+		const samples = [Number(slider.getAttribute('aria-valuenow'))]
+		const observer = new MutationObserver(() => {
+			samples.push(Number(slider.getAttribute('aria-valuenow')))
+		})
+		observer.observe(slider, {
+			attributeFilter: ['aria-valuenow'],
+			attributes: true,
+		})
+		Reflect.set(window, samplesKey, samples)
+		setTimeout(() => observer.disconnect(), 1500)
+	}, PLAYBACK_START_SAMPLES_KEY)
 	await page.getByRole('button', { exact: true, name: 'Play' }).click()
 	await playbackRange
+	await page.waitForTimeout(1000)
+	const playbackStartSamples = await page.evaluate((samplesKey) => {
+		const samples = Reflect.get(window, samplesKey)
+		return Array.isArray(samples) ? samples.map(Number) : []
+	}, PLAYBACK_START_SAMPLES_KEY)
+	expect(playbackStartSamples.length).toBeGreaterThan(0)
+	expect(Math.min(...playbackStartSamples)).toBeGreaterThan(
+		positionBeforePlay - 1
+	)
 	await expect(currentFileRow).toHaveAttribute(
 		'data-playback-state',
 		'streaming-unavailable'
@@ -421,7 +550,7 @@ test('a full browser quota keeps real range playback online without starting an 
 				request.contentRange?.endsWith(`/${firstAudio?.bytes ?? 0}`)
 		)
 	).toBe(false)
-	await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+	await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 })
 
 test('a real private torrent plays, persists offline, and follows full lifecycle', async ({
@@ -838,9 +967,9 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		await currentFileRow.click()
 		await page.getByRole('button', { exact: true, name: 'Play' }).click()
 		await expect(
-			page.getByRole('button', { exact: true, name: 'Stop' })
+			page.getByRole('button', { exact: true, name: 'Pause' })
 		).toBeVisible()
-		await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+		await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 		await expect(
 			page.getByRole('button', { exact: true, name: 'Play' })
 		).toBeVisible()
@@ -858,7 +987,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		)
 		await page.getByRole('button', { exact: true, name: 'Play' }).click()
 		await expect(
-			page.getByRole('button', { exact: true, name: 'Stop' })
+			page.getByRole('button', { exact: true, name: 'Pause' })
 		).toBeVisible()
 
 		await expect(currentFileRow).toHaveAttribute('aria-current', 'true')
@@ -979,7 +1108,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			)
 		).toBe(true)
 
-		await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+		await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 		await expect(currentFileRow).toHaveAttribute(
 			'data-playback-source',
 			'offline'
@@ -1001,7 +1130,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			})
 			.toBeGreaterThan(savedPosition)
 		expect(blockedFileRequests).toBe(0)
-		await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+		await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 		await page.unroute('**/api/torrents/*/files/*')
 	})
 
@@ -1173,7 +1302,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		})
 		await page.getByRole('button', { exact: true, name: 'Play' }).click()
 		await page.waitForTimeout(500)
-		await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+		await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 		await expect
 			.poll(async () => await getSavedPlaybackTime(page, fixture.infoHash), {
 				timeout: 10_000,
@@ -1236,7 +1365,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			})
 			.toBeGreaterThan(0)
 		expect(blockedReplayRequests).toBe(0)
-		await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+		await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 		await page.unroute('**/api/torrents/*/files/*')
 	})
 
@@ -1259,15 +1388,15 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			)
 			.toBeGreaterThan(10)
 		await page.getByRole('button', { exact: true, name: 'Play' }).click()
-		const stopButton = page.getByRole('button', {
+		const pauseButton = page.getByRole('button', {
 			exact: true,
-			name: 'Stop',
+			name: 'Pause',
 		})
-		await expect(stopButton).toBeVisible()
+		await expect(pauseButton).toBeVisible()
 		await page.waitForTimeout(500)
 		expect(blockedFileRequests).toBe(0)
-		if (await stopButton.isVisible()) {
-			await stopButton.click()
+		if (await pauseButton.isVisible()) {
+			await pauseButton.click()
 		}
 		await page.unroute('**/api/torrents/*/files/*')
 	})
@@ -1365,7 +1494,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			'streaming-saving'
 		)
 		await expect(finalFileRow).toContainText('streaming · saving offline')
-		await page.getByRole('button', { exact: true, name: 'Stop' }).click()
+		await page.getByRole('button', { exact: true, name: 'Pause' }).click()
 
 		const firstFileRow = page.getByRole('button', {
 			name: new RegExp(firstAudio?.name ?? '^$'),
