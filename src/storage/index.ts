@@ -1,7 +1,8 @@
 import Dexie, { type DexieOptions, type Table, type Transaction } from 'dexie'
 
 const DATABASE_NAME = 'books'
-const CURRENT_DATABASE_VERSION = 3
+const CHUNKED_FILE_DATABASE_VERSION = 4
+const CURRENT_DATABASE_VERSION = 6
 
 export interface PlaybackState {
 	path: string[]
@@ -17,10 +18,96 @@ export interface StoredTorrent {
 	state: PlaybackState
 }
 
-export interface StoredFile {
-	file: Blob
+interface StoredFileBase {
 	ih: string
+	length: number
+	mimeType: string
 	path: string
+	validator?: string
+}
+
+export interface StoredBlobFile extends StoredFileBase {
+	file: Blob
+	storage: 'blob'
+}
+
+export interface StoredChunkedFile extends StoredFileBase {
+	chunkSize: number
+	file?: undefined
+	storage: 'chunks'
+}
+
+export type StoredFile = StoredBlobFile | StoredChunkedFile
+
+export interface StoredFileChunk {
+	data: Blob
+	end: number
+	ih: string
+	index: number
+	path: string
+	start: number
+}
+
+export interface StoredFileDownload {
+	chunkSize: number
+	downloadedBytes: number
+	generation?: number
+	ih: string
+	length: number
+	mimeType: string
+	path: string
+	updatedAt: number
+	validator?: string
+}
+
+export interface StoredOfflineGeneration {
+	generation: number
+	ih: string
+	removed?: boolean
+	updatedAt: number
+}
+
+export interface StoredOfflineLease {
+	expiresAt: number
+	name: string
+	owner: string
+}
+
+export interface OfflineFileState {
+	complete: boolean
+	downloadedBytes: number
+	generation: number
+	length: number
+	mimeType: string
+	path: string
+	validator?: string
+}
+
+export interface FileChunkInput {
+	chunkSize: number
+	data: Blob
+	end: number
+	generation: number
+	ih: string
+	index: number
+	length: number
+	mimeType: string
+	path: string
+	start: number
+	validator: string
+}
+
+export interface StalePartialCleanupOptions {
+	cutoffUpdatedAt: number
+	maxChunks?: number
+	maxDownloads?: number
+}
+
+export interface StalePartialCleanupResult {
+	deletedBytes: number
+	deletedChunks: number
+	deletedDownloads: number
+	hasMore: boolean
 }
 
 export interface StoredNote {
@@ -52,6 +139,14 @@ interface LegacyFile {
 	file: Blob
 	ih: string
 	path: string
+}
+
+type StoredFileRecord = LegacyFile | StoredFile
+
+interface MigratedLegacyFile extends LegacyFile {
+	length: number
+	mimeType: string
+	storage: 'blob'
 }
 
 interface LegacyNote {
@@ -150,7 +245,7 @@ const migrateVersionTwo = async (transaction: Transaction): Promise<void> => {
 		)
 	}
 
-	const filesByKey = new Map<string, StoredFile>()
+	const filesByKey = new Map<string, MigratedLegacyFile>()
 	for (const record of legacyFiles) {
 		const ih = normalizeInfoHash(record.ih)
 		const key = `${ih}\0${record.path}`
@@ -158,7 +253,10 @@ const migrateVersionTwo = async (transaction: Transaction): Promise<void> => {
 			filesByKey.set(key, {
 				file: record.file,
 				ih,
+				length: record.file.size,
+				mimeType: record.file.type,
 				path: record.path,
+				storage: 'blob',
 			})
 		}
 	}
@@ -195,8 +293,12 @@ const toDexieOptions = ({
 })
 
 class BooksDatabase extends Dexie {
-	files!: Table<StoredFile, [string, string]>
+	fileChunks!: Table<StoredFileChunk, [string, string, number]>
+	fileDownloads!: Table<StoredFileDownload, [string, string]>
+	files!: Table<StoredFileRecord, [string, string]>
 	notes!: Table<StoredNote, number>
+	offlineGenerations!: Table<StoredOfflineGeneration, string>
+	offlineLeases!: Table<StoredOfflineLease, string>
 	torrents!: Table<StoredTorrent, string>
 
 	constructor(options: StorageOptions) {
@@ -206,13 +308,108 @@ class BooksDatabase extends Dexie {
 			notes: '++id, ih',
 			torrents: 'ih',
 		})
-		this.version(CURRENT_DATABASE_VERSION)
+		this.version(3)
 			.stores({
 				files: '[ih+path], ih',
 				notes: '++id, ih, [ih+path]',
 				torrents: 'ih, state.updatedAt',
 			})
 			.upgrade(migrateVersionTwo)
+		this.version(CHUNKED_FILE_DATABASE_VERSION).stores({
+			fileChunks: '[ih+path+index], [ih+path], ih',
+			fileDownloads: '[ih+path], ih, updatedAt',
+			files: '[ih+path], ih',
+			notes: '++id, ih, [ih+path]',
+			torrents: 'ih, state.updatedAt',
+		})
+		this.version(CURRENT_DATABASE_VERSION).stores({
+			fileChunks: '[ih+path+index], [ih+path], ih',
+			fileDownloads: '[ih+path], ih, updatedAt',
+			files: '[ih+path], ih',
+			notes: '++id, ih, [ih+path]',
+			offlineGenerations: 'ih, updatedAt',
+			offlineLeases: 'name, expiresAt',
+			torrents: 'ih, state.updatedAt',
+		})
+	}
+}
+
+const expectedChunkLength = (
+	index: number,
+	length: number,
+	chunkSize: number
+): number => Math.min(chunkSize, Math.max(0, length - index * chunkSize))
+
+const isLegacyBlobFile = (file: StoredFileRecord): file is LegacyFile =>
+	!('storage' in file) && file.file instanceof Blob
+
+const normalizeStoredFile = (file: StoredFileRecord): StoredFile =>
+	isLegacyBlobFile(file)
+		? {
+				...file,
+				length: file.file.size,
+				mimeType: file.file.type,
+				storage: 'blob',
+			}
+		: file
+
+const storedFileLength = (file: StoredFileRecord): number =>
+	isLegacyBlobFile(file) ? file.file.size : file.length
+
+const storedFileMimeType = (file: StoredFileRecord): string =>
+	isLegacyBlobFile(file) ? file.file.type : file.mimeType
+
+const offlineStateFromFile = (file: StoredFileRecord): OfflineFileState => {
+	const length = storedFileLength(file)
+	return {
+		complete: true,
+		downloadedBytes: length,
+		generation: 0,
+		length,
+		mimeType: storedFileMimeType(file),
+		path: file.path,
+		...(!isLegacyBlobFile(file) && file.validator
+			? { validator: file.validator }
+			: {}),
+	}
+}
+
+const offlineStateFromDownload = (
+	download: StoredFileDownload
+): OfflineFileState => ({
+	complete: false,
+	downloadedBytes: download.downloadedBytes,
+	generation: download.generation ?? 0,
+	length: download.length,
+	mimeType: download.mimeType,
+	path: download.path,
+	...(download.validator ? { validator: download.validator } : {}),
+})
+
+const generationValue = (record: StoredOfflineGeneration | undefined): number =>
+	record?.generation ?? 0
+
+const invalidatedDownloadError = (): DOMException =>
+	new DOMException('Offline cache operation was invalidated', 'AbortError')
+
+const rotateOfflineGeneration = async (
+	table: Table<StoredOfflineGeneration, string>,
+	ih: string,
+	removed = false
+): Promise<number> => {
+	const generation = generationValue(await table.get(ih)) + 1
+	await table.put({ generation, ih, removed, updatedAt: Date.now() })
+	return generation
+}
+
+const assertOfflineGeneration = async (
+	table: Table<StoredOfflineGeneration, string>,
+	ih: string,
+	expectedGeneration: number
+): Promise<void> => {
+	const record = await table.get(ih)
+	if (record?.removed || generationValue(record) !== expectedGeneration) {
+		throw invalidatedDownloadError()
 	}
 }
 
@@ -225,18 +422,83 @@ export class BookStorage {
 
 	async addTorrent(ih: string, info: unknown): Promise<void> {
 		const normalizedHash = normalizeInfoHash(ih)
-		await this.database.transaction('rw', this.database.torrents, async () => {
-			const current = await this.database.torrents.get(normalizedHash)
-			await this.database.torrents.put({
-				ih: normalizedHash,
-				info: normalizeMetadata(info),
-				state: current?.state ?? { path: [], time: 0 },
-			})
-		})
+		await this.database.transaction(
+			'rw',
+			[this.database.offlineGenerations, this.database.torrents],
+			async () => {
+				const [current, generation] = await Promise.all([
+					this.database.torrents.get(normalizedHash),
+					this.database.offlineGenerations.get(normalizedHash),
+				])
+				if (generation?.removed) {
+					await rotateOfflineGeneration(
+						this.database.offlineGenerations,
+						normalizedHash
+					)
+				}
+				await this.database.torrents.put({
+					ih: normalizedHash,
+					info: normalizeMetadata(info),
+					state: current?.state ?? { path: [], time: 0 },
+				})
+			}
+		)
 	}
 
 	async getTorrent(ih: string): Promise<StoredTorrent | null> {
 		return (await this.database.torrents.get(normalizeInfoHash(ih))) ?? null
+	}
+
+	async tryAcquireOfflineLease(
+		name: string,
+		owner: string,
+		now: number,
+		expiresAt: number
+	): Promise<boolean> {
+		return await this.database.transaction(
+			'rw',
+			this.database.offlineLeases,
+			async () => {
+				const current = await this.database.offlineLeases.get(name)
+				if (current && current.owner !== owner && current.expiresAt > now) {
+					return false
+				}
+				await this.database.offlineLeases.put({ expiresAt, name, owner })
+				return true
+			}
+		)
+	}
+
+	async renewOfflineLease(
+		name: string,
+		owner: string,
+		expiresAt: number
+	): Promise<boolean> {
+		return await this.database.transaction(
+			'rw',
+			this.database.offlineLeases,
+			async () => {
+				const current = await this.database.offlineLeases.get(name)
+				if (current?.owner !== owner) {
+					return false
+				}
+				await this.database.offlineLeases.put({ expiresAt, name, owner })
+				return true
+			}
+		)
+	}
+
+	async releaseOfflineLease(name: string, owner: string): Promise<void> {
+		await this.database.transaction(
+			'rw',
+			this.database.offlineLeases,
+			async () => {
+				const current = await this.database.offlineLeases.get(name)
+				if (current?.owner === owner) {
+					await this.database.offlineLeases.delete(name)
+				}
+			}
+		)
 	}
 
 	async getTorrents(limit?: number): Promise<StoredTorrent[]> {
@@ -253,29 +515,559 @@ export class BookStorage {
 	}
 
 	async addFile(ih: string, path: string, file: Blob): Promise<void> {
-		await this.database.files.put({
-			file,
-			ih: normalizeInfoHash(ih),
-			path,
-		})
+		const normalizedHash = normalizeInfoHash(ih)
+		await this.database.transaction(
+			'rw',
+			[
+				this.database.fileChunks,
+				this.database.fileDownloads,
+				this.database.files,
+			],
+			async () => {
+				await Promise.all([
+					this.database.fileChunks
+						.where('[ih+path]')
+						.equals([normalizedHash, path])
+						.delete(),
+					this.database.fileDownloads.delete([normalizedHash, path]),
+				])
+				await this.database.files.put({
+					file,
+					ih: normalizedHash,
+					length: file.size,
+					mimeType: file.type,
+					path,
+					storage: 'blob',
+				})
+			}
+		)
 	}
 
 	async getFile(ih: string, path: string): Promise<StoredFile | null> {
-		return (
-			(await this.database.files.get([normalizeInfoHash(ih), path])) ?? null
+		const file = await this.database.files.get([normalizeInfoHash(ih), path])
+		return file ? normalizeStoredFile(file) : null
+	}
+
+	async getFileBlob(ih: string, path: string): Promise<Blob | null> {
+		const normalizedHash = normalizeInfoHash(ih)
+		return await this.database.transaction(
+			'r',
+			[this.database.fileChunks, this.database.files],
+			async () => {
+				const file = await this.database.files.get([normalizedHash, path])
+				if (!file) {
+					return null
+				}
+				const normalizedFile = normalizeStoredFile(file)
+				if (normalizedFile.storage === 'blob') {
+					return normalizedFile.file
+				}
+				const chunks = await this.database.fileChunks
+					.where('[ih+path]')
+					.equals([normalizedHash, path])
+					.sortBy('index')
+				const hasEveryByte =
+					chunks.length ===
+						Math.ceil(normalizedFile.length / normalizedFile.chunkSize) &&
+					chunks.every((chunk, index) => {
+						const chunkLength = expectedChunkLength(
+							index,
+							normalizedFile.length,
+							normalizedFile.chunkSize
+						)
+						return (
+							chunk.index === index &&
+							chunk.start === index * normalizedFile.chunkSize &&
+							chunk.end === chunk.start + chunkLength - 1 &&
+							chunk.data.size === chunkLength
+						)
+					})
+				if (!hasEveryByte) {
+					return null
+				}
+				return new Blob(
+					chunks.map((chunk) => chunk.data),
+					{ type: storedFileMimeType(normalizedFile) }
+				)
+			}
+		)
+	}
+
+	async getOfflineFileState(
+		ih: string,
+		path: string
+	): Promise<OfflineFileState | null> {
+		const normalizedHash = normalizeInfoHash(ih)
+		const [file, download] = await Promise.all([
+			this.database.files.get([normalizedHash, path]),
+			this.database.fileDownloads.get([normalizedHash, path]),
+		])
+		if (file) {
+			return offlineStateFromFile(file)
+		}
+		return download ? offlineStateFromDownload(download) : null
+	}
+
+	async getOfflineGeneration(ih: string): Promise<number> {
+		const record = await this.database.offlineGenerations.get(
+			normalizeInfoHash(ih)
+		)
+		if (record?.removed) {
+			throw invalidatedDownloadError()
+		}
+		return generationValue(record)
+	}
+
+	async getOfflineFileStatesForTorrent(
+		ih: string
+	): Promise<OfflineFileState[]> {
+		const normalizedHash = normalizeInfoHash(ih)
+		const [files, downloads] = await Promise.all([
+			this.database.files.where('ih').equals(normalizedHash).toArray(),
+			this.database.fileDownloads.where('ih').equals(normalizedHash).toArray(),
+		])
+		const states = new Map<string, OfflineFileState>()
+		for (const download of downloads) {
+			states.set(download.path, offlineStateFromDownload(download))
+		}
+		for (const file of files) {
+			states.set(file.path, offlineStateFromFile(file))
+		}
+		return [...states.values()]
+	}
+
+	async prepareFileDownload(
+		ih: string,
+		path: string,
+		length: number,
+		mimeType: string,
+		chunkSize: number,
+		generation = 0
+	): Promise<OfflineFileState> {
+		const normalizedHash = normalizeInfoHash(ih)
+		return await this.database.transaction(
+			'rw',
+			[
+				this.database.fileChunks,
+				this.database.fileDownloads,
+				this.database.files,
+				this.database.offlineGenerations,
+			],
+			async () => {
+				await assertOfflineGeneration(
+					this.database.offlineGenerations,
+					normalizedHash,
+					generation
+				)
+				const complete = await this.database.files.get([normalizedHash, path])
+				if (complete) {
+					return { ...offlineStateFromFile(complete), generation }
+				}
+
+				const existing = await this.database.fileDownloads.get([
+					normalizedHash,
+					path,
+				])
+				const isCompatible =
+					existing?.length === length && existing.chunkSize === chunkSize
+				if (!isCompatible) {
+					await this.database.fileChunks
+						.where('[ih+path]')
+						.equals([normalizedHash, path])
+						.delete()
+				}
+
+				const chunks = isCompatible
+					? await this.database.fileChunks
+							.where('[ih+path]')
+							.equals([normalizedHash, path])
+							.toArray()
+					: []
+				let downloadedBytes = 0
+				const invalidChunkKeys: [string, string, number][] = []
+				for (const chunk of chunks) {
+					const expectedLength = expectedChunkLength(
+						chunk.index,
+						length,
+						chunkSize
+					)
+					const isValid =
+						expectedLength > 0 &&
+						chunk.start === chunk.index * chunkSize &&
+						chunk.end === chunk.start + expectedLength - 1 &&
+						chunk.data.size === expectedLength
+					if (isValid) {
+						downloadedBytes += expectedLength
+					} else {
+						invalidChunkKeys.push([normalizedHash, path, chunk.index])
+					}
+				}
+				await this.database.fileChunks.bulkDelete(invalidChunkKeys)
+
+				const download: StoredFileDownload = {
+					chunkSize,
+					downloadedBytes,
+					generation,
+					ih: normalizedHash,
+					length,
+					mimeType,
+					path,
+					updatedAt: Date.now(),
+					...(isCompatible && existing.validator
+						? { validator: existing.validator }
+						: {}),
+				}
+				await this.database.fileDownloads.put(download)
+				return offlineStateFromDownload(download)
+			}
+		)
+	}
+
+	async restartFileDownload(
+		ih: string,
+		path: string,
+		length: number,
+		mimeType: string,
+		chunkSize: number,
+		generation: number,
+		validator?: string
+	): Promise<OfflineFileState> {
+		const normalizedHash = normalizeInfoHash(ih)
+		return await this.database.transaction(
+			'rw',
+			[
+				this.database.fileChunks,
+				this.database.fileDownloads,
+				this.database.files,
+				this.database.offlineGenerations,
+			],
+			async () => {
+				await assertOfflineGeneration(
+					this.database.offlineGenerations,
+					normalizedHash,
+					generation
+				)
+				const complete = await this.database.files.get([normalizedHash, path])
+				if (complete) {
+					return { ...offlineStateFromFile(complete), generation }
+				}
+				await this.database.fileChunks
+					.where('[ih+path]')
+					.equals([normalizedHash, path])
+					.delete()
+				const download: StoredFileDownload = {
+					chunkSize,
+					downloadedBytes: 0,
+					generation,
+					ih: normalizedHash,
+					length,
+					mimeType,
+					path,
+					updatedAt: Date.now(),
+					...(validator ? { validator } : {}),
+				}
+				await this.database.fileDownloads.put(download)
+				return offlineStateFromDownload(download)
+			}
+		)
+	}
+
+	async getStoredFileChunkIndexes(
+		ih: string,
+		path: string
+	): Promise<Set<number>> {
+		const chunks = await this.database.fileChunks
+			.where('[ih+path]')
+			.equals([normalizeInfoHash(ih), path])
+			.toArray()
+		return new Set(chunks.map((chunk) => chunk.index))
+	}
+
+	async cleanupStalePartialDownloads({
+		cutoffUpdatedAt,
+		maxChunks = 64,
+		maxDownloads = 8,
+	}: StalePartialCleanupOptions): Promise<StalePartialCleanupResult> {
+		const boundedChunkCount = Math.max(1, Math.trunc(maxChunks))
+		const boundedDownloadCount = Math.max(1, Math.trunc(maxDownloads))
+		return await this.database.transaction(
+			'rw',
+			[
+				this.database.fileChunks,
+				this.database.fileDownloads,
+				this.database.files,
+			],
+			async () => {
+				const candidates = await this.database.fileDownloads
+					.where('updatedAt')
+					.belowOrEqual(cutoffUpdatedAt)
+					.limit(boundedDownloadCount)
+					.toArray()
+				let deletedBytes = 0
+				let deletedChunks = 0
+				let deletedDownloads = 0
+				for (const candidate of candidates) {
+					if (deletedChunks >= boundedChunkCount) {
+						break
+					}
+					// biome-ignore lint/performance/noAwaitInLoops: Each stale manifest is rechecked inside one bounded transaction.
+					const current = await this.database.fileDownloads.get([
+						candidate.ih,
+						candidate.path,
+					])
+					if (!current || current.updatedAt > cutoffUpdatedAt) {
+						continue
+					}
+					const complete = await this.database.files.get([
+						candidate.ih,
+						candidate.path,
+					])
+					if (complete) {
+						await this.database.fileDownloads.delete([
+							candidate.ih,
+							candidate.path,
+						])
+						deletedDownloads += 1
+						continue
+					}
+					const remainingChunkBudget = boundedChunkCount - deletedChunks
+					const chunks = await this.database.fileChunks
+						.where('[ih+path]')
+						.equals([candidate.ih, candidate.path])
+						.limit(remainingChunkBudget)
+						.toArray()
+					if (chunks.length > 0) {
+						await this.database.fileChunks.bulkDelete(
+							chunks.map((chunk) => [chunk.ih, chunk.path, chunk.index])
+						)
+					}
+					const removedBytes = chunks.reduce(
+						(total, chunk) => total + chunk.data.size,
+						0
+					)
+					deletedBytes += removedBytes
+					deletedChunks += chunks.length
+					const remainingChunks = await this.database.fileChunks
+						.where('[ih+path]')
+						.equals([candidate.ih, candidate.path])
+						.count()
+					if (remainingChunks === 0) {
+						await this.database.fileDownloads.delete([
+							candidate.ih,
+							candidate.path,
+						])
+						deletedDownloads += 1
+					} else {
+						await this.database.fileDownloads.put({
+							...current,
+							downloadedBytes: Math.max(
+								0,
+								current.downloadedBytes - removedBytes
+							),
+						})
+					}
+				}
+				const hasMore =
+					(await this.database.fileDownloads
+						.where('updatedAt')
+						.belowOrEqual(cutoffUpdatedAt)
+						.count()) > 0
+				return {
+					deletedBytes,
+					deletedChunks,
+					deletedDownloads,
+					hasMore,
+				}
+			}
+		)
+	}
+
+	async putFileChunk(input: FileChunkInput): Promise<OfflineFileState> {
+		const normalizedHash = normalizeInfoHash(input.ih)
+		const expectedLength = expectedChunkLength(
+			input.index,
+			input.length,
+			input.chunkSize
+		)
+		const expectedStart = input.index * input.chunkSize
+		if (
+			expectedLength <= 0 ||
+			input.start !== expectedStart ||
+			input.end !== expectedStart + expectedLength - 1 ||
+			input.data.size !== expectedLength
+		) {
+			throw new Error(
+				'Offline file chunk does not match its expected byte range'
+			)
+		}
+
+		return await this.database.transaction(
+			'rw',
+			[
+				this.database.fileChunks,
+				this.database.fileDownloads,
+				this.database.offlineGenerations,
+			],
+			async () => {
+				await assertOfflineGeneration(
+					this.database.offlineGenerations,
+					normalizedHash,
+					input.generation
+				)
+				const key: [string, string, number] = [
+					normalizedHash,
+					input.path,
+					input.index,
+				]
+				const [existingChunk, download] = await Promise.all([
+					this.database.fileChunks.get(key),
+					this.database.fileDownloads.get([normalizedHash, input.path]),
+				])
+				if (
+					!download ||
+					(download.generation ?? 0) !== input.generation ||
+					download.length !== input.length ||
+					download.chunkSize !== input.chunkSize
+				) {
+					throw new Error('Offline file download metadata changed')
+				}
+				if (download.validator && download.validator !== input.validator) {
+					throw new Error('Offline file validator changed')
+				}
+				await this.database.fileChunks.put({
+					data: input.data,
+					end: input.end,
+					ih: normalizedHash,
+					index: input.index,
+					path: input.path,
+					start: input.start,
+				})
+				const downloadedBytes = Math.min(
+					download.length,
+					download.downloadedBytes +
+						input.data.size -
+						(existingChunk?.data.size ?? 0)
+				)
+				const updated = {
+					...download,
+					downloadedBytes,
+					mimeType: input.mimeType || download.mimeType,
+					updatedAt: Date.now(),
+					validator: download.validator ?? input.validator,
+				}
+				await this.database.fileDownloads.put(updated)
+				return offlineStateFromDownload(updated)
+			}
+		)
+	}
+
+	async completeFileDownload(
+		ih: string,
+		path: string,
+		generation = 0
+	): Promise<OfflineFileState> {
+		const normalizedHash = normalizeInfoHash(ih)
+		return await this.database.transaction(
+			'rw',
+			[
+				this.database.fileChunks,
+				this.database.fileDownloads,
+				this.database.files,
+				this.database.offlineGenerations,
+			],
+			async () => {
+				await assertOfflineGeneration(
+					this.database.offlineGenerations,
+					normalizedHash,
+					generation
+				)
+				const complete = await this.database.files.get([normalizedHash, path])
+				if (complete) {
+					return { ...offlineStateFromFile(complete), generation }
+				}
+				const download = await this.database.fileDownloads.get([
+					normalizedHash,
+					path,
+				])
+				if (!download) {
+					throw new Error('Offline file download metadata is missing')
+				}
+				if ((download.generation ?? 0) !== generation) {
+					throw invalidatedDownloadError()
+				}
+				const chunks = await this.database.fileChunks
+					.where('[ih+path]')
+					.equals([normalizedHash, path])
+					.sortBy('index')
+				const expectedCount = Math.ceil(download.length / download.chunkSize)
+				const isComplete =
+					chunks.length === expectedCount &&
+					chunks.every((chunk, index) => {
+						const expectedLength = expectedChunkLength(
+							index,
+							download.length,
+							download.chunkSize
+						)
+						return (
+							chunk.index === index &&
+							chunk.start === index * download.chunkSize &&
+							chunk.end === chunk.start + expectedLength - 1 &&
+							chunk.data.size === expectedLength
+						)
+					})
+				if (!isComplete) {
+					throw new Error('Offline file is missing one or more byte ranges')
+				}
+				const file: StoredChunkedFile = {
+					chunkSize: download.chunkSize,
+					ih: normalizedHash,
+					length: download.length,
+					mimeType: download.mimeType,
+					path,
+					storage: 'chunks',
+					...(download.validator ? { validator: download.validator } : {}),
+				}
+				await this.database.files.put(file)
+				await this.database.fileDownloads.delete([normalizedHash, path])
+				return offlineStateFromFile(file)
+			}
 		)
 	}
 
 	async getAllFilesForTorrent(ih: string): Promise<StoredFile[]> {
-		return await this.database.files
+		const files = await this.database.files
 			.where('ih')
 			.equals(normalizeInfoHash(ih))
 			.toArray()
+		return files.map(normalizeStoredFile)
 	}
 
 	async removeFile(ih: string, path: string): Promise<boolean> {
+		const normalizedHash = normalizeInfoHash(ih)
 		try {
-			await this.database.files.delete([normalizeInfoHash(ih), path])
+			await this.database.transaction(
+				'rw',
+				[
+					this.database.fileChunks,
+					this.database.fileDownloads,
+					this.database.files,
+					this.database.offlineGenerations,
+				],
+				async () => {
+					await rotateOfflineGeneration(
+						this.database.offlineGenerations,
+						normalizedHash
+					)
+					await Promise.all([
+						this.database.fileChunks
+							.where('[ih+path]')
+							.equals([normalizedHash, path])
+							.delete(),
+						this.database.fileDownloads.delete([normalizedHash, path]),
+						this.database.files.delete([normalizedHash, path]),
+					])
+				}
+			)
 			return true
 		} catch {
 			return false
@@ -283,13 +1075,34 @@ export class BookStorage {
 	}
 
 	async removeFilesByIh(ih: string): Promise<boolean> {
+		const normalizedHash = normalizeInfoHash(ih)
 		try {
-			await this.database.transaction('rw', this.database.files, async () => {
-				await this.database.files
-					.where('ih')
-					.equals(normalizeInfoHash(ih))
-					.delete()
-			})
+			await this.database.transaction(
+				'rw',
+				[
+					this.database.fileChunks,
+					this.database.fileDownloads,
+					this.database.files,
+					this.database.offlineGenerations,
+				],
+				async () => {
+					await rotateOfflineGeneration(
+						this.database.offlineGenerations,
+						normalizedHash
+					)
+					await Promise.all([
+						this.database.fileChunks
+							.where('ih')
+							.equals(normalizedHash)
+							.delete(),
+						this.database.fileDownloads
+							.where('ih')
+							.equals(normalizedHash)
+							.delete(),
+						this.database.files.where('ih').equals(normalizedHash).delete(),
+					])
+				}
+			)
 			return true
 		} catch {
 			return false
@@ -301,9 +1114,29 @@ export class BookStorage {
 		try {
 			await this.database.transaction(
 				'rw',
-				[this.database.files, this.database.notes, this.database.torrents],
+				[
+					this.database.fileChunks,
+					this.database.fileDownloads,
+					this.database.files,
+					this.database.notes,
+					this.database.offlineGenerations,
+					this.database.torrents,
+				],
 				async () => {
+					await rotateOfflineGeneration(
+						this.database.offlineGenerations,
+						normalizedHash,
+						true
+					)
 					await Promise.all([
+						this.database.fileChunks
+							.where('ih')
+							.equals(normalizedHash)
+							.delete(),
+						this.database.fileDownloads
+							.where('ih')
+							.equals(normalizedHash)
+							.delete(),
 						this.database.files.where('ih').equals(normalizedHash).delete(),
 						this.database.notes.where('ih').equals(normalizedHash).delete(),
 						this.database.torrents.delete(normalizedHash),

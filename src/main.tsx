@@ -3,6 +3,7 @@ import App from './App'
 import Routes from './routes'
 import './index.css'
 import { ThemeProvider } from './components/theme-provider'
+import { registerServiceWorker } from './registerServiceWorker'
 
 const routes = Routes()
 
@@ -18,3 +19,5 @@ root.render(
 		<App routes={routes} />
 	</ThemeProvider>
 )
+
+registerServiceWorker()

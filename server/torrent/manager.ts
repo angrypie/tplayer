@@ -10,6 +10,7 @@ import type { TorrentRuntimeConfig } from '../config'
 import type { AppDatabase, CacheEntry, TorrentSummary } from '../database'
 import { asError, HttpError } from '../errors'
 import type { AppLogger } from '../logger'
+import { torrentFileMediaType } from './mediaType'
 import { type ByteRange, parseByteRange } from './range'
 import {
 	normalizeInfoHash,
@@ -191,7 +192,7 @@ const fileDetails = (
 	downloaded: file.downloaded,
 	id: String(index),
 	length: file.length,
-	mimeType: file.type,
+	mimeType: torrentFileMediaType(file.name, file.type),
 	name: file.name,
 	path: displayPath(torrent, file),
 	progress: file.progress,

@@ -165,6 +165,14 @@ interface CloudflareEnvelope<T> {
 	success: boolean
 }
 
+interface CloudflareRequester {
+	request: <T>(path: string, method?: string, body?: unknown) => Promise<T>
+}
+
+interface CachePurgeResult {
+	id: string
+}
+
 class CloudflareApiError extends Error {
 	readonly status: number
 
@@ -1126,6 +1134,47 @@ const verifyDesiredState = async (
 	writeLine('Cloudflare desired-state verification passed')
 }
 
+const frontendCacheUrls = (
+	manifest: DesiredState
+): [string, string, string, string] => {
+	const publicUrl = new URL(manifest.health.publicUrl)
+	if (
+		publicUrl.protocol !== 'https:' ||
+		publicUrl.hostname !== manifest.tunnel.hostname ||
+		publicUrl.port !== '' ||
+		publicUrl.username !== '' ||
+		publicUrl.password !== ''
+	) {
+		throw new Error(
+			'manifest.health.publicUrl must be the HTTPS tunnel hostname without credentials or a custom port'
+		)
+	}
+	return [
+		new URL('/', publicUrl.origin).href,
+		new URL('/sw.js', publicUrl.origin).href,
+		new URL('/sw-upgrade-v2.js', publicUrl.origin).href,
+		new URL('/api/torrents', publicUrl.origin).href,
+	]
+}
+
+const purgeFrontendCache = async (
+	client: CloudflareRequester,
+	manifest: DesiredState
+): Promise<{ purgeId: string; urls: [string, string, string, string] }> => {
+	const urls = frontendCacheUrls(manifest)
+	const result = await client.request<CachePurgeResult>(
+		`/zones/${manifest.zoneId}/purge_cache`,
+		'POST',
+		{ files: urls }
+	)
+	if (!result.id) {
+		throw new Error(
+			'Cloudflare cache purge response did not include a request ID'
+		)
+	}
+	return { purgeId: result.id, urls }
+}
+
 const confirmApply = async (): Promise<boolean> => {
 	if (!(stdin.isTTY && stdout.isTTY)) {
 		return false
@@ -1159,7 +1208,7 @@ const requireClient = (): CloudflareClient => {
 	return new CloudflareClient(token)
 }
 
-const selfTest = (manifest: DesiredState): void => {
+const selfTest = async (manifest: DesiredState): Promise<void> => {
 	const existing: IngressRule[] = [
 		{ hostname: 'couchview.angrypie.dev', service: 'http://localhost:4173' },
 		{ service: 'http_status:404' },
@@ -1182,6 +1231,32 @@ const selfTest = (manifest: DesiredState): void => {
 		true
 	)
 	assert.equal(hashValue(manifest).length, 64)
+
+	const expectedPurgeUrls: [string, string, string, string] = [
+		`https://${manifest.tunnel.hostname}/`,
+		`https://${manifest.tunnel.hostname}/sw.js`,
+		`https://${manifest.tunnel.hostname}/sw-upgrade-v2.js`,
+		`https://${manifest.tunnel.hostname}/api/torrents`,
+	]
+	assert.deepEqual(frontendCacheUrls(manifest), expectedPurgeUrls)
+	let purgeRequest: { body?: unknown; method?: string; path: string } | null =
+		null
+	const fakeClient: CloudflareRequester = {
+		request: <Value>(path: string, method?: string, body?: unknown) => {
+			purgeRequest = { body, method, path }
+			return Promise.resolve({ id: 'test-purge' } as Value)
+		},
+	}
+	const purge = await purgeFrontendCache(fakeClient, manifest)
+	assert.deepEqual(purge, {
+		purgeId: 'test-purge',
+		urls: expectedPurgeUrls,
+	})
+	assert.deepEqual(purgeRequest, {
+		body: { files: expectedPurgeUrls },
+		method: 'POST',
+		path: `/zones/${manifest.zoneId}/purge_cache`,
+	})
 	writeLine('Cloudflare onboarding self-test passed')
 }
 
@@ -1202,6 +1277,9 @@ const printHelp = (): void => {
 	writeLine('  apply --yes                 Apply a previously reviewed plan')
 	writeLine(
 		'  verify                      Verify Cloudflare and runtime desired state'
+	)
+	writeLine(
+		'  purge-frontend --yes         Purge only the public shell, service worker, and bootstrap API URL'
 	)
 	writeLine('  rollback <snapshot> --yes   Restore a local rollback snapshot')
 	writeLine(
@@ -1230,11 +1308,25 @@ const main = async (): Promise<void> => {
 		return
 	}
 	if (command === 'self-test') {
-		selfTest(manifest)
+		await selfTest(manifest)
 		return
+	}
+	if (command === 'purge-frontend' && !options.yes) {
+		throw new Error(
+			'Frontend cache purge requires --yes; only the shell and service worker URLs will be purged'
+		)
 	}
 
 	const client = requireClient()
+	if (command === 'purge-frontend') {
+		const { purgeId, urls } = await purgeFrontendCache(client, manifest)
+		writeLine(`Purged ${urls.length} exact Cloudflare cache URLs:`)
+		for (const url of urls) {
+			writeLine(`- ${url}`)
+		}
+		writeLine(`Cloudflare purge request: ${purgeId}`)
+		return
+	}
 	if (command === 'plan') {
 		printPlan(await buildPlan(client, manifest))
 		return

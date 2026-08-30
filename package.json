@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "benchmark": "bun test server/database.test.ts server/torrent/integration.test.ts --test-name-pattern 'performance|TTFB' --timeout 30000",
+    "benchmark": "bun test server/database.test.ts server/torrent/integration.test.ts src/routes/Playlist/offlineCache.test.ts --test-name-pattern 'performance|TTFB' --timeout 30000",
     "build": "tsc -b && bunx --bun vite build && bun run build:server",
     "build:frontend": "tsc -b && bunx --bun vite build",
     "build:server": "bun build --target=bun --packages=external --sourcemap=linked --outdir=build --entry-naming=server.js server/index.ts",
@@ -13,6 +13,7 @@
     "cloudflare:apply": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts apply",
     "cloudflare:onboard": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts onboard",
     "cloudflare:plan": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts plan",
+    "cloudflare:purge": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts purge-frontend",
     "cloudflare:rollback": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts rollback",
     "cloudflare:test": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts self-test",
     "cloudflare:verify": "bun --env-file=.env.cloudflare run scripts/cloudflare.ts verify",

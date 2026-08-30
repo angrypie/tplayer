@@ -369,8 +369,11 @@ export const BottomBar = observer(({ store }) => {
 		(status) => {
 			setPreloadStatus(preloadLabel(status))
 			setNotice(preloadNotice(status))
+			if (status.state === 'completed') {
+				store.refreshServerCache().catch(store.handlePlaybackError)
+			}
 		},
-		[setNotice]
+		[setNotice, store]
 	)
 
 	const preloadBook = useCallback(async () => {

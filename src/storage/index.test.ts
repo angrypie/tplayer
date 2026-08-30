@@ -7,6 +7,7 @@ import { type BookStorage, createStorage } from './index'
 
 const INFO_HASH = '0123456789abcdef0123456789abcdef01234567'
 const LEGACY_COMBINED_PATH = 'combined_Joh1thoh/0-1/Migrated audiobook/01.mp3'
+const TEST_CHUNK_BYTES = 1024 * 1024
 
 const uniqueDatabaseName = (label: string): string =>
 	`tplayer-${label}-${crypto.randomUUID()}`
@@ -61,6 +62,54 @@ const seedVersionTwoDatabase = async (
 	legacy.close()
 }
 
+const seedVersionThreeDatabase = async (
+	databaseName: string,
+	bytes: Uint8Array<ArrayBuffer>
+): Promise<void> => {
+	const legacy = new Dexie(databaseName, { IDBKeyRange, indexedDB })
+	legacy.version(3).stores({
+		files: '[ih+path], ih',
+		notes: '++id, ih, [ih+path]',
+		torrents: 'ih, state.updatedAt',
+	})
+	await legacy.open()
+	await legacy.table('files').put({
+		file: new Blob([bytes], { type: 'audio/mpeg' }),
+		ih: INFO_HASH,
+		path: 'Legacy v3/01.mp3',
+	})
+	legacy.close()
+}
+
+const deterministicBytes = (length: number): Uint8Array<ArrayBuffer> =>
+	Uint8Array.from({ length }, (_, index) => (index * 29 + 17) % 251)
+
+const readRawFile = async (
+	databaseName: string,
+	path: string
+): Promise<Record<string, unknown> | undefined> => {
+	const database = await new Promise<IDBDatabase>((resolve, reject) => {
+		const request = indexedDB.open(databaseName)
+		request.onerror = () => reject(request.error)
+		request.onsuccess = () => resolve(request.result)
+	})
+	try {
+		return await new Promise<Record<string, unknown> | undefined>(
+			(resolve, reject) => {
+				const request = database
+					.transaction('files', 'readonly')
+					.objectStore('files')
+					.get([INFO_HASH, path])
+				request.onerror = () => reject(request.error)
+				request.onsuccess = () =>
+					resolve(request.result as Record<string, unknown> | undefined)
+			}
+		)
+	} finally {
+		database.close()
+	}
+}
+
 describe('IndexedDB storage integration', () => {
 	test('migrates a deployed v2 database in place without changing playback, notes, combined paths, or Blob bytes', async () => {
 		const databaseName = uniqueDatabaseName('v2-migration')
@@ -91,7 +140,7 @@ describe('IndexedDB storage integration', () => {
 			})
 
 			const combined = await repository.getFile(INFO_HASH, LEGACY_COMBINED_PATH)
-			expect(combined?.file.type).toBe('audio/mpeg')
+			expect(combined?.file?.type).toBe('audio/mpeg')
 			expect(await exactBytes(combined?.file ?? new Blob())).toEqual(bytes)
 			expect(
 				(await repository.getAllFilesForTorrent(INFO_HASH)).map(
@@ -126,10 +175,277 @@ describe('IndexedDB storage integration', () => {
 
 			const storedFiles = await repository.getAllFilesForTorrent(INFO_HASH)
 			expect(storedFiles).toHaveLength(1)
-			expect(storedFiles[0]?.file.type).toBe('audio/mpeg')
+			expect(storedFiles[0]?.file?.type).toBe('audio/mpeg')
 			expect(await exactBytes(storedFiles[0]?.file ?? new Blob())).toEqual(
 				bytes
 			)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('upgrades a deployed v3 Blob lazily without copying it into chunks', async () => {
+		const databaseName = uniqueDatabaseName('v3-migration')
+		const bytes = deterministicBytes(TEST_CHUNK_BYTES + 37)
+		await seedVersionThreeDatabase(databaseName, bytes)
+		const repository = createRepository(databaseName)
+		try {
+			const stored = await repository.getFile(INFO_HASH, 'Legacy v3/01.mp3')
+			expect(stored?.storage).toBe('blob')
+			expect(stored?.length).toBe(bytes.byteLength)
+			expect(await exactBytes(stored?.file ?? new Blob())).toEqual(bytes)
+			expect(
+				await exactBytes(
+					(await repository.getFileBlob(INFO_HASH, 'Legacy v3/01.mp3')) ??
+						new Blob()
+				)
+			).toEqual(bytes)
+			expect(
+				await repository.getStoredFileChunkIndexes(
+					INFO_HASH,
+					'Legacy v3/01.mp3'
+				)
+			).toEqual(new Set())
+			const raw = await readRawFile(databaseName, 'Legacy v3/01.mp3')
+			expect(raw?.file).toBeInstanceOf(Blob)
+			expect('length' in (raw ?? {})).toBe(false)
+			expect('mimeType' in (raw ?? {})).toBe(false)
+			expect('storage' in (raw ?? {})).toBe(false)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('commits out-of-order chunks exactly once and assembles the exact large file', async () => {
+		const databaseName = uniqueDatabaseName('chunked-file')
+		const repository = createRepository(databaseName)
+		const path = 'Chunked/01.m4b'
+		const bytes = deterministicBytes(TEST_CHUNK_BYTES * 2 + 12_345)
+		try {
+			await repository.prepareFileDownload(
+				INFO_HASH,
+				path,
+				bytes.byteLength,
+				'audio/mp4',
+				TEST_CHUNK_BYTES
+			)
+			for (const index of [2, 0, 1, 1]) {
+				const start = index * TEST_CHUNK_BYTES
+				const end = Math.min(bytes.byteLength - 1, start + TEST_CHUNK_BYTES - 1)
+				// biome-ignore lint/performance/noAwaitInLoops: Ordered assertions verify every durable transaction result.
+				const state = await repository.putFileChunk({
+					chunkSize: TEST_CHUNK_BYTES,
+					data: new Blob([bytes.slice(start, end + 1)], { type: 'audio/mp4' }),
+					end,
+					generation: 0,
+					ih: INFO_HASH,
+					index,
+					length: bytes.byteLength,
+					mimeType: 'audio/mp4',
+					path,
+					start,
+					validator: '"storage-test-validator"',
+				})
+				expect(state.downloadedBytes).toBeLessThanOrEqual(bytes.byteLength)
+			}
+
+			const completed = await repository.completeFileDownload(INFO_HASH, path)
+			expect(completed).toEqual({
+				complete: true,
+				downloadedBytes: bytes.byteLength,
+				generation: 0,
+				length: bytes.byteLength,
+				mimeType: 'audio/mp4',
+				path,
+				validator: '"storage-test-validator"',
+			})
+			const reconstructed = await repository.getFileBlob(INFO_HASH, path)
+			expect(reconstructed?.size).toBe(bytes.byteLength)
+			expect(await exactBytes(reconstructed ?? new Blob())).toEqual(bytes)
+			expect(
+				await repository.getStoredFileChunkIndexes(INFO_HASH, path)
+			).toEqual(new Set([0, 1, 2]))
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('a cross-tab clear invalidates late writes atomically and a remove tombstone blocks stale tabs', async () => {
+		const databaseName = uniqueDatabaseName('cross-tab-generation')
+		const firstTab = createRepository(databaseName)
+		const secondTab = createRepository(databaseName)
+		const path = 'Concurrent/01.m4b'
+		const bytes = deterministicBytes(TEST_CHUNK_BYTES * 2)
+		try {
+			await firstTab.addTorrent(INFO_HASH, { name: 'Concurrent book' })
+			const noteId = await firstTab.addNote(
+				INFO_HASH,
+				path,
+				42,
+				'Keep after clear'
+			)
+			const generation = await firstTab.getOfflineGeneration(INFO_HASH)
+			await firstTab.prepareFileDownload(
+				INFO_HASH,
+				path,
+				bytes.byteLength,
+				'audio/mp4',
+				TEST_CHUNK_BYTES,
+				generation
+			)
+			await firstTab.putFileChunk({
+				chunkSize: TEST_CHUNK_BYTES,
+				data: new Blob([bytes.slice(0, TEST_CHUNK_BYTES)]),
+				end: TEST_CHUNK_BYTES - 1,
+				generation,
+				ih: INFO_HASH,
+				index: 0,
+				length: bytes.byteLength,
+				mimeType: 'audio/mp4',
+				path,
+				start: 0,
+				validator: '"cross-tab-validator"',
+			})
+
+			expect(await secondTab.removeFilesByIh(INFO_HASH)).toBe(true)
+			await expect(
+				firstTab.putFileChunk({
+					chunkSize: TEST_CHUNK_BYTES,
+					data: new Blob([bytes.slice(TEST_CHUNK_BYTES)]),
+					end: bytes.byteLength - 1,
+					generation,
+					ih: INFO_HASH,
+					index: 1,
+					length: bytes.byteLength,
+					mimeType: 'audio/mp4',
+					path,
+					start: TEST_CHUNK_BYTES,
+					validator: '"cross-tab-validator"',
+				})
+			).rejects.toMatchObject({ name: 'AbortError' })
+			await expect(
+				firstTab.completeFileDownload(INFO_HASH, path, generation)
+			).rejects.toMatchObject({ name: 'AbortError' })
+			expect(await firstTab.getOfflineFileState(INFO_HASH, path)).toBeNull()
+			expect(await firstTab.getStoredFileChunkIndexes(INFO_HASH, path)).toEqual(
+				new Set()
+			)
+			expect((await firstTab.getTorrent(INFO_HASH))?.info).toEqual({
+				name: 'Concurrent book',
+			})
+			expect((await firstTab.getNote(noteId))?.note).toBe('Keep after clear')
+
+			expect(await secondTab.removeFilesAndTorrent(INFO_HASH)).toBe(true)
+			await expect(
+				firstTab.getOfflineGeneration(INFO_HASH)
+			).rejects.toMatchObject({
+				name: 'AbortError',
+			})
+			await firstTab.addTorrent(INFO_HASH, { name: 'Re-added book' })
+			expect(await firstTab.getOfflineGeneration(INFO_HASH)).toBeGreaterThan(
+				generation
+			)
+		} finally {
+			secondTab.close()
+			await firstTab.deleteDatabase()
+		}
+	})
+
+	test('cross-tab offline leases exclude a second owner and allow release or expiry takeover', async () => {
+		const databaseName = uniqueDatabaseName('offline-leases')
+		const firstTab = createRepository(databaseName)
+		const secondTab = createRepository(databaseName)
+		const leaseName = 'offline:file:chapter-01'
+		try {
+			expect(
+				await firstTab.tryAcquireOfflineLease(leaseName, 'first', 1000, 2000)
+			).toBe(true)
+			expect(
+				await secondTab.tryAcquireOfflineLease(leaseName, 'second', 1500, 2500)
+			).toBe(false)
+			expect(await secondTab.renewOfflineLease(leaseName, 'second', 3000)).toBe(
+				false
+			)
+			expect(await firstTab.renewOfflineLease(leaseName, 'first', 3000)).toBe(
+				true
+			)
+
+			await secondTab.releaseOfflineLease(leaseName, 'second')
+			expect(
+				await secondTab.tryAcquireOfflineLease(leaseName, 'second', 2500, 3500)
+			).toBe(false)
+			await firstTab.releaseOfflineLease(leaseName, 'first')
+			expect(
+				await secondTab.tryAcquireOfflineLease(leaseName, 'second', 2500, 3500)
+			).toBe(true)
+
+			expect(
+				await firstTab.tryAcquireOfflineLease(leaseName, 'first', 4000, 5000)
+			).toBe(true)
+		} finally {
+			secondTab.close()
+			await firstTab.deleteDatabase()
+		}
+	})
+
+	test('stale partial cleanup removes at most one exact 1 MiB chunk per bounded pass', async () => {
+		const databaseName = uniqueDatabaseName('stale-partials')
+		const repository = createRepository(databaseName)
+		const path = 'Stale/01.m4b'
+		const bytes = deterministicBytes(TEST_CHUNK_BYTES * 2)
+		try {
+			await repository.prepareFileDownload(
+				INFO_HASH,
+				path,
+				bytes.byteLength,
+				'audio/mp4',
+				TEST_CHUNK_BYTES
+			)
+			for (const index of [0, 1]) {
+				const start = index * TEST_CHUNK_BYTES
+				// biome-ignore lint/performance/noAwaitInLoops: The fixture creates two durable chunks before bounded cleanup.
+				await repository.putFileChunk({
+					chunkSize: TEST_CHUNK_BYTES,
+					data: new Blob([bytes.slice(start, start + TEST_CHUNK_BYTES)]),
+					end: start + TEST_CHUNK_BYTES - 1,
+					generation: 0,
+					ih: INFO_HASH,
+					index,
+					length: bytes.byteLength,
+					mimeType: 'audio/mp4',
+					path,
+					start,
+					validator: '"stale-validator"',
+				})
+			}
+
+			const firstPass = await repository.cleanupStalePartialDownloads({
+				cutoffUpdatedAt: Date.now() + 1000,
+				maxChunks: 1,
+				maxDownloads: 1,
+			})
+			expect(firstPass).toEqual({
+				deletedBytes: TEST_CHUNK_BYTES,
+				deletedChunks: 1,
+				deletedDownloads: 0,
+				hasMore: true,
+			})
+			expect(
+				(await repository.getOfflineFileState(INFO_HASH, path))?.downloadedBytes
+			).toBe(TEST_CHUNK_BYTES)
+
+			const secondPass = await repository.cleanupStalePartialDownloads({
+				cutoffUpdatedAt: Date.now() + 1000,
+				maxChunks: 1,
+				maxDownloads: 1,
+			})
+			expect(secondPass).toEqual({
+				deletedBytes: TEST_CHUNK_BYTES,
+				deletedChunks: 1,
+				deletedDownloads: 1,
+				hasMore: false,
+			})
+			expect(await repository.getOfflineFileState(INFO_HASH, path)).toBeNull()
 		} finally {
 			await repository.deleteDatabase()
 		}
@@ -195,9 +511,32 @@ describe('IndexedDB storage integration', () => {
 				'Persistent book/01.mp3',
 				new Blob([Uint8Array.from([1, 3, 3, 7])])
 			)
+			await repository.prepareFileDownload(
+				INFO_HASH,
+				'Persistent book/02.mp3',
+				TEST_CHUNK_BYTES * 2,
+				'audio/mpeg',
+				TEST_CHUNK_BYTES
+			)
+			await repository.putFileChunk({
+				chunkSize: TEST_CHUNK_BYTES,
+				data: new Blob([deterministicBytes(TEST_CHUNK_BYTES)]),
+				end: TEST_CHUNK_BYTES - 1,
+				generation: 0,
+				ih: INFO_HASH,
+				index: 0,
+				length: TEST_CHUNK_BYTES * 2,
+				mimeType: 'audio/mpeg',
+				path: 'Persistent book/02.mp3',
+				start: 0,
+				validator: '"cleanup-test-validator"',
+			})
 
 			expect(await repository.removeFilesByIh(INFO_HASH)).toBe(true)
 			expect(await repository.getAllFilesForTorrent(INFO_HASH)).toEqual([])
+			expect(
+				await repository.getOfflineFileStatesForTorrent(INFO_HASH)
+			).toEqual([])
 			expect((await repository.getTorrent(INFO_HASH))?.state).toEqual({
 				path: ['Persistent book', '01.mp3'],
 				time: 945.5,

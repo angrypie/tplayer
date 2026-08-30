@@ -9,7 +9,18 @@ import {
 	naturalCompare,
 	normalizePath,
 } from '~/utils'
-import { downloadFileForOffline, getPlayableUrl, getTorrentInfo } from './api'
+import {
+	cacheFileForOffline,
+	cancelOfflineDownloads,
+	getPlayableSource,
+	getServerCachedBytes,
+	getTorrentInfo,
+} from './api'
+import { OfflineCacheError } from './offlineCache'
+import {
+	publishOfflineChange,
+	subscribeToOfflineChanges,
+} from './offlineEvents'
 import { usePlayerStore } from './Player/store'
 
 export const COMBINED_FILES_PREFIX = 'combined_Joh1thoh'
@@ -24,6 +35,9 @@ const emptyTorrentInfo = () => ({
 	state: undefined,
 })
 const ignoreFailure = () => undefined
+
+const isAbortError = (error) =>
+	error instanceof DOMException && error.name === 'AbortError'
 
 const pathKey = (path) => normalizePath(path).join('/')
 
@@ -67,9 +81,17 @@ const cachedOriginalFile = (
 		...originalFile,
 		cached: true,
 		id: originalFile?.id ?? storedFile.id ?? storedPath,
-		length: originalFile?.length ?? storedFile.file.size,
-		mimeType: originalFile?.mimeType ?? storedFile.file.type,
+		length:
+			originalFile?.length ?? storedFile.length ?? storedFile.file?.size ?? 0,
+		mimeType:
+			originalFile?.mimeType ??
+			storedFile.mimeType ??
+			storedFile.file?.type ??
+			'',
 		name: originalFile?.name ?? pathParts.at(-1) ?? storedPath,
+		offlineDownloadedBytes:
+			originalFile?.length ?? storedFile.length ?? storedFile.file?.size ?? 0,
+		offlineState: 'available',
 		path: originalFile?.path ?? pathParts,
 		state: 'ready',
 	}
@@ -92,9 +114,11 @@ const cachedCombinedFile = (storedFile, pathParts, storedPath, indexes) => ({
 	cached: true,
 	id: storedFile.id ?? storedPath,
 	isCombined: true,
-	length: storedFile.file.size,
-	mimeType: storedFile.file.type || 'audio/mpeg',
+	length: storedFile.length ?? storedFile.file?.size ?? 0,
+	mimeType: storedFile.mimeType || storedFile.file?.type || 'audio/mpeg',
 	name: pathParts.at(-1) ?? storedPath,
+	offlineDownloadedBytes: storedFile.length ?? storedFile.file?.size ?? 0,
+	offlineState: 'available',
 	originalIndexes: indexes ?? [0, 0],
 	path: pathParts,
 	state: 'ready',
@@ -137,8 +161,20 @@ const playbackTime = (value) => {
 	return Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0
 }
 
+const persistedOfflineStateLabel = (state) => {
+	if (state?.complete) {
+		return 'available'
+	}
+	return state ? 'paused' : undefined
+}
+
 const isCurrentSourceRequest = (store, requestId) =>
 	requestId === store.sourceRequestId && !store.disposed
+
+const playbackEndWasSuperseded = (store, requestId) =>
+	!isCurrentSourceRequest(store, requestId) ||
+	store.playerStore.playWhenReady ||
+	store.playerStore.playing
 
 const isCurrentMetadataRequest = (store, requestId) =>
 	requestId === store.metadataRequestId && !store.disposed
@@ -167,6 +203,9 @@ const reuseCurrentSource = (store, file, state, options, resumeTime) => {
 	if (options.autoplay) {
 		store.playerStore.play()
 	}
+	if (!file.cached) {
+		store.cacheOfflineFile(file).catch(ignoreFailure)
+	}
 	return true
 }
 
@@ -182,12 +221,12 @@ const beginSourceChange = (store, options) => {
 
 const resolvePlayableSource = async (store, file, requestId) => {
 	try {
-		const url = await getPlayableUrl(store.ih, file)
+		const source = await getPlayableSource(store.ih, file)
 		if (!isCurrentSourceRequest(store, requestId)) {
-			releaseUrl(url)
+			releaseUrl(source.url)
 			return null
 		}
-		return url
+		return source
 	} catch (error) {
 		if (isCurrentSourceRequest(store, requestId)) {
 			runInAction(() => {
@@ -202,11 +241,12 @@ const resolvePlayableSource = async (store, file, requestId) => {
 const activatePlayableSource = (
 	store,
 	file,
-	url,
+	source,
 	resumeTime,
 	shouldAutoplay
 ) => {
 	runInAction(() => {
+		store.currentSourceKind = source.kind
 		file.state = 'ready'
 		store.currentFile = file
 	})
@@ -214,7 +254,7 @@ const activatePlayableSource = (
 		autoplay: shouldAutoplay,
 		format: getAudioFormat(file),
 		resumeTime,
-		url,
+		url: source.url,
 	})
 }
 
@@ -235,7 +275,9 @@ const prepareTorrentSwitch = async (store, infoHash, requestId) => {
 	store.playerStore.clearSource()
 	runInAction(() => {
 		store.currentFile = emptyCurrentFile()
+		store.currentSourceKind = null
 		store.ih = infoHash
+		store.serverCachedBytes = null
 		store.torrentInfo = emptyTorrentInfo()
 	})
 	return true
@@ -286,6 +328,113 @@ const resumeSavedFile = async (store, torrentInfo, infoHash, requestId) => {
 	}
 }
 
+const hasCurrentOfflineTarget = (store, infoHash, file) =>
+	infoHash === store.ih &&
+	!store.disposed &&
+	store.torrentInfo.files.some(({ path }) => comparePath(path, file.path))
+
+const reconcileOfflineChange = async (store, change) => {
+	if (change.infoHash !== store.ih.toLowerCase()) {
+		return
+	}
+	if (change.kind === 'removed') {
+		await cancelOfflineDownloads(store.ih)
+	}
+	await store.refreshOfflineState(change.path)
+}
+
+const isBulkDownloadCurrent = async (
+	store,
+	infoHash,
+	requestId,
+	expectedGeneration
+) => {
+	if (store.bulkDownloadRequestId !== requestId || store.disposed) {
+		return false
+	}
+	try {
+		return (await storage.getOfflineGeneration(infoHash)) === expectedGeneration
+	} catch {
+		return false
+	}
+}
+
+const downloadFileInBulk = async (store, file, expectedGeneration) => {
+	runInAction(() => {
+		file.state = 'loading'
+	})
+	const saved = await store.cacheOfflineFile(file, {
+		expectedGeneration,
+		showFailure: false,
+	})
+	runInAction(() => {
+		file.state = 'ready'
+	})
+	return saved
+}
+
+const downloadFilesInBulk = async (
+	store,
+	files,
+	infoHash,
+	requestId,
+	expectedGeneration
+) => {
+	let failedCount = 0
+	for (const file of files) {
+		// biome-ignore lint/performance/noAwaitInLoops: Bulk saves are intentionally sequential to bound memory, network, and IndexedDB pressure.
+		const currentBeforeDownload = await isBulkDownloadCurrent(
+			store,
+			infoHash,
+			requestId,
+			expectedGeneration
+		)
+		if (!currentBeforeDownload) {
+			return null
+		}
+		const saved = await downloadFileInBulk(store, file, expectedGeneration)
+		if (!saved) {
+			failedCount += 1
+		}
+		const currentAfterDownload = await isBulkDownloadCurrent(
+			store,
+			infoHash,
+			requestId,
+			expectedGeneration
+		)
+		if (!currentAfterDownload) {
+			return null
+		}
+	}
+	return failedCount
+}
+
+const applyOfflineFailure = (store, infoHash, file, error, showFailure) => {
+	if (!hasCurrentOfflineTarget(store, infoHash, file)) {
+		return
+	}
+	const target = store.torrentInfo.files.find(({ path }) =>
+		comparePath(path, file.path)
+	)
+	if (target) {
+		target.offlineState =
+			error instanceof OfflineCacheError && error.code === 'quota_exceeded'
+				? 'unavailable'
+				: 'failed'
+		if (file !== target) {
+			file.offlineState = target.offlineState
+		}
+	}
+	if (!showFailure) {
+		return
+	}
+	const message =
+		error instanceof Error
+			? error.message
+			: 'Unable to save this audiobook offline.'
+	store.setNotice(`${message} Streaming is still available.`)
+}
+
 export const useBookStores = ({ ih }) => {
 	const playerStore = usePlayerStore()
 	const bookStore = useBookStore({ ih, playerStore })
@@ -305,16 +454,116 @@ export const useBookStores = ({ ih }) => {
 
 export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 	const store = useLocalObservable(() => ({
+		applyOfflineProgress(file, progress) {
+			const target = store.torrentInfo.files.find(({ path }) =>
+				comparePath(path, file.path)
+			)
+			if (!target) {
+				return
+			}
+			const becameAvailable = progress.state === 'complete' && !target.cached
+			target.cached = progress.state === 'complete'
+			target.offlineDownloadedBytes = progress.downloadedBytes
+			target.offlineState =
+				progress.state === 'complete' ? 'available' : 'saving'
+			if (file !== target) {
+				file.cached = target.cached
+				file.offlineDownloadedBytes = target.offlineDownloadedBytes
+				file.offlineState = target.offlineState
+			}
+			if (becameAvailable) {
+				store.filesVersion += 1
+			}
+		},
+		applyPersistedOfflineState(file, state) {
+			const target = store.torrentInfo.files.find(({ path }) =>
+				comparePath(path, file.path)
+			)
+			if (!target) {
+				return
+			}
+			const wasCached = Boolean(target.cached)
+			target.cached = Boolean(state?.complete)
+			target.offlineDownloadedBytes = state?.downloadedBytes ?? 0
+			target.offlineState = persistedOfflineStateLabel(state)
+			if (file !== target) {
+				file.cached = target.cached
+				file.offlineDownloadedBytes = target.offlineDownloadedBytes
+				file.offlineState = target.offlineState
+			}
+			if (wasCached !== target.cached) {
+				store.filesVersion += 1
+			}
+		},
+
+		bulkDownloadRequestId: 0,
+
+		async cacheOfflineFile(
+			file,
+			{ expectedGeneration, showFailure = true } = {}
+		) {
+			const requestedInfoHash = store.ih
+			try {
+				await cacheFileForOffline(
+					requestedInfoHash,
+					file,
+					(progress) => {
+						if (!hasCurrentOfflineTarget(store, requestedInfoHash, file)) {
+							return
+						}
+						runInAction(() => {
+							store.applyOfflineProgress(file, progress)
+						})
+					},
+					{ expectedGeneration }
+				)
+				if (
+					requestedInfoHash === store.ih &&
+					!store.disposed &&
+					comparePath(file.path, store.currentFile.path)
+				) {
+					await store.switchCurrentSourceToOffline()
+				}
+				return true
+			} catch (error) {
+				if (isAbortError(error)) {
+					const state = await storage.getOfflineFileState(
+						requestedInfoHash,
+						pathKey(file.path)
+					)
+					if (hasCurrentOfflineTarget(store, requestedInfoHash, file)) {
+						runInAction(() => {
+							store.applyPersistedOfflineState(file, state)
+						})
+					}
+					return false
+				}
+				runInAction(() => {
+					applyOfflineFailure(
+						store,
+						requestedInfoHash,
+						file,
+						error,
+						showFailure
+					)
+				})
+				return false
+			}
+		},
 		async cleanBookData(infoHash) {
+			store.bulkDownloadRequestId += 1
 			const snapshot = store.createResumeSnapshot()
 			store.sourceRequestId += 1
 			store.playerStore.clearSource()
 			store.currentFile = emptyCurrentFile()
+			store.currentSourceKind = null
 			await store.persistResumeSnapshot(snapshot)
+			await cancelOfflineDownloads(infoHash)
 			const result = await storage.removeFilesByIh(infoHash)
 			if (result) {
+				publishOfflineChange({ infoHash, kind: 'removed' })
 				store.filesVersion += 1
-				await store.setTorrentInfo(infoHash)
+				await store.setTorrentInfo(infoHash, { resumePlayback: false })
 			}
 			return result
 		},
@@ -338,12 +587,14 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 			}
 		},
 		currentFile: emptyCurrentFile(),
+		currentSourceKind: null,
 
 		async dispose() {
 			if (store.disposed) {
 				return
 			}
 			store.disposed = true
+			store.bulkDownloadRequestId += 1
 			store.metadataRequestId += 1
 			store.sourceRequestId += 1
 			const snapshot = store.createResumeSnapshot()
@@ -363,24 +614,18 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 				return true
 			}
 
-			let failedCount = 0
-			for (const file of filesToDownload) {
-				runInAction(() => {
-					file.state = 'loading'
-				})
-				try {
-					// biome-ignore lint/performance/noAwaitInLoops: Sequential full-file downloads keep peak browser memory bounded.
-					await downloadFileForOffline(infoHash, file)
-					runInAction(() => {
-						file.cached = true
-						file.state = 'ready'
-					})
-				} catch {
-					failedCount += 1
-					runInAction(() => {
-						file.state = 'ready'
-					})
-				}
+			const requestId = store.bulkDownloadRequestId + 1
+			store.bulkDownloadRequestId = requestId
+			const expectedGeneration = await storage.getOfflineGeneration(infoHash)
+			const failedCount = await downloadFilesInBulk(
+				store,
+				filesToDownload,
+				infoHash,
+				requestId,
+				expectedGeneration
+			)
+			if (failedCount === null) {
+				return false
 			}
 			runInAction(() => {
 				store.filesVersion += 1
@@ -433,15 +678,23 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 				store.createResumeSnapshot(finalTime),
 				'Unable to save the finished chapter position.'
 			)
-			if (requestId !== store.sourceRequestId || store.disposed) {
+			if (playbackEndWasSuperseded(store, requestId)) {
 				return
 			}
 			const nextFile = await store.getNextFile()
-			if (requestId !== store.sourceRequestId || store.disposed) {
+			if (playbackEndWasSuperseded(store, requestId)) {
 				return
 			}
 			if (!nextFile) {
 				store.playerStore.finishPlayback()
+				if (store.currentSourceKind === 'server' && store.currentFile.cached) {
+					await store.switchCurrentSourceToOffline({ resumeTime: 0 })
+				} else if (
+					store.currentSourceKind === 'offline' &&
+					!store.currentFile.cached
+				) {
+					await store.switchCurrentSourceToServer({ resumeTime: 0 })
+				}
 				return
 			}
 			await store.setCurrentFile(nextFile, undefined, {
@@ -452,6 +705,56 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 
 		handlePlaybackError(error) {
 			store.setNotice(error instanceof Error ? error.message : String(error))
+		},
+
+		async handlePlaybackLoad() {
+			if (
+				store.currentSourceKind === 'server' &&
+				store.currentFile.cached &&
+				!store.playerStore.playWhenReady &&
+				!store.playerStore.playing
+			) {
+				await store.switchCurrentSourceToOffline()
+				return
+			}
+			if (
+				store.currentSourceKind === 'offline' &&
+				!store.currentFile.cached &&
+				!store.playerStore.playWhenReady &&
+				!store.playerStore.playing
+			) {
+				await store.switchCurrentSourceToServer()
+			}
+		},
+
+		async handlePlaybackPause() {
+			await store.saveCurrentPlaying({ force: true })
+			if (
+				store.currentSourceKind === 'server' &&
+				store.currentFile.cached &&
+				!store.playerStore.playing
+			) {
+				await store.switchCurrentSourceToOffline()
+				return
+			}
+			if (
+				store.currentSourceKind === 'offline' &&
+				!store.currentFile.cached &&
+				!store.playerStore.playing
+			) {
+				await store.switchCurrentSourceToServer()
+			}
+		},
+
+		handlePlaybackPlay() {
+			if (
+				store.currentSourceKind === 'server' &&
+				store.currentFile.path.length > 0 &&
+				!store.currentFile.cached &&
+				store.currentFile.offlineState !== 'saving'
+			) {
+				store.cacheOfflineFile(store.currentFile).catch(ignoreFailure)
+			}
 		},
 		ih: initialInfoHash,
 		metadataRequestId: 0,
@@ -466,25 +769,89 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 		},
 		playerStore,
 
+		async refreshOfflineState(changedPath) {
+			const requestedInfoHash = store.ih
+			const states =
+				await storage.getOfflineFileStatesForTorrent(requestedInfoHash)
+			if (requestedInfoHash !== store.ih || store.disposed) {
+				return
+			}
+			const statesByPath = new Map(states.map((state) => [state.path, state]))
+			runInAction(() => {
+				for (const file of store.torrentInfo.files) {
+					const filePath = pathKey(file.path)
+					if (changedPath === undefined || changedPath === filePath) {
+						store.applyPersistedOfflineState(
+							file,
+							statesByPath.get(filePath) ?? null
+						)
+					}
+				}
+				const currentPath = pathKey(store.currentFile.path)
+				if (
+					currentPath &&
+					(changedPath === undefined || changedPath === currentPath)
+				) {
+					store.applyPersistedOfflineState(
+						store.currentFile,
+						statesByPath.get(currentPath) ?? null
+					)
+				}
+			})
+			if (store.currentFile.cached) {
+				await store.switchCurrentSourceToOffline()
+				return
+			}
+			await store.switchCurrentSourceToServer()
+		},
+
+		async refreshServerCache() {
+			const requestedInfoHash = store.ih
+			const cachedBytes = await getServerCachedBytes(requestedInfoHash)
+			if (requestedInfoHash !== store.ih || store.disposed) {
+				return
+			}
+			runInAction(() => {
+				store.serverCachedBytes = cachedBytes
+			})
+		},
+
 		async removeBook(infoHash) {
+			store.bulkDownloadRequestId += 1
 			store.metadataRequestId += 1
 			store.sourceRequestId += 1
 			store.playerStore.clearSource()
 			store.currentFile = emptyCurrentFile()
-			return await storage.removeFilesAndTorrent(infoHash)
+			store.currentSourceKind = null
+			await cancelOfflineDownloads(infoHash)
+			const removed = await storage.removeFilesAndTorrent(infoHash)
+			if (removed) {
+				publishOfflineChange({ infoHash, kind: 'removed' })
+			}
+			return removed
 		},
 
 		async removeFile(infoHash, file) {
+			store.bulkDownloadRequestId += 1
+			await cancelOfflineDownloads(infoHash, file.path)
 			if (comparePath(file.path, store.currentFile.path)) {
 				await store.saveCurrentPlaying({ force: true })
 				store.sourceRequestId += 1
 				store.playerStore.clearSource()
 				store.currentFile = emptyCurrentFile()
+				store.currentSourceKind = null
 			}
 			const success = await storage.removeFile(infoHash, pathKey(file.path))
 			if (success) {
+				publishOfflineChange({
+					infoHash,
+					kind: 'removed',
+					path: pathKey(file.path),
+				})
 				runInAction(() => {
 					file.cached = false
+					file.offlineDownloadedBytes = 0
+					file.offlineState = undefined
 					file.state = 'ready'
 					store.filesVersion += 1
 				})
@@ -498,6 +865,7 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 			}
 			return await store.persistResumeSnapshot(store.createResumeSnapshot())
 		},
+		serverCachedBytes: null,
 
 		async setCurrentFile(file, state, options = {}) {
 			if (!(file && isAudioFile(file))) {
@@ -507,6 +875,13 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 
 			const resumeTime = playbackTime(state?.time)
 			if (reuseCurrentSource(store, file, state, options, resumeTime)) {
+				if (
+					file.cached &&
+					store.currentSourceKind === 'server' &&
+					!store.playerStore.playing
+				) {
+					await store.switchCurrentSourceToOffline()
+				}
 				return true
 			}
 
@@ -526,12 +901,13 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 			runInAction(() => {
 				file.state = 'loading'
 			})
-			const url = await resolvePlayableSource(store, file, requestId)
-			if (!url) {
+			const source = await resolvePlayableSource(store, file, requestId)
+			if (!source) {
 				return false
 			}
 
-			activatePlayableSource(store, file, url, resumeTime, shouldAutoplay)
+			activatePlayableSource(store, file, source, resumeTime, shouldAutoplay)
+			store.cacheOfflineFile(file).catch(ignoreFailure)
 			return true
 		},
 
@@ -539,7 +915,7 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 			store.notice = message
 		},
 
-		async setTorrentInfo(infoHash) {
+		async setTorrentInfo(infoHash, { resumePlayback = true } = {}) {
 			const requestId = store.metadataRequestId + 1
 			store.metadataRequestId = requestId
 			if (!(await prepareTorrentSwitch(store, infoHash, requestId))) {
@@ -555,10 +931,96 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 			runInAction(() => {
 				store.torrentInfo = torrentInfo
 			})
-			await resumeSavedFile(store, torrentInfo, infoHash, requestId)
+			await store.refreshServerCache()
+			if (!isCurrentMetadataRequest(store, requestId)) {
+				return false
+			}
+			if (resumePlayback) {
+				await resumeSavedFile(store, torrentInfo, infoHash, requestId)
+			}
 			return true
 		},
 		sourceRequestId: 0,
+
+		async switchCurrentSourceToOffline({
+			resumeTime: requestedResumeTime,
+		} = {}) {
+			if (
+				store.currentSourceKind !== 'server' ||
+				store.playerStore.loading ||
+				store.playerStore.playWhenReady ||
+				store.playerStore.playing ||
+				!store.currentFile.cached
+			) {
+				return false
+			}
+			const requestId = store.sourceRequestId
+			const file = store.currentFile
+			const source = await getPlayableSource(store.ih, file)
+			if (
+				!isCurrentSourceRequest(store, requestId) ||
+				store.playerStore.loading ||
+				store.playerStore.playWhenReady ||
+				store.playerStore.playing ||
+				!comparePath(file.path, store.currentFile.path) ||
+				store.currentSourceKind !== 'server' ||
+				!store.currentFile.cached ||
+				source.kind !== 'offline'
+			) {
+				releaseUrl(source.url)
+				return false
+			}
+			runInAction(() => {
+				store.currentSourceKind = 'offline'
+			})
+			const resumeTime = requestedResumeTime ?? store.playerStore.getProgress()
+			store.playerStore.loadSource({
+				format: getAudioFormat(file),
+				resumeTime,
+				url: source.url,
+			})
+			return true
+		},
+
+		async switchCurrentSourceToServer({
+			resumeTime: requestedResumeTime,
+		} = {}) {
+			if (
+				store.currentSourceKind !== 'offline' ||
+				store.playerStore.loading ||
+				store.playerStore.playWhenReady ||
+				store.playerStore.playing ||
+				store.currentFile.cached
+			) {
+				return false
+			}
+			const requestId = store.sourceRequestId
+			const file = store.currentFile
+			const source = await getPlayableSource(store.ih, file)
+			if (
+				!isCurrentSourceRequest(store, requestId) ||
+				store.playerStore.loading ||
+				store.playerStore.playWhenReady ||
+				store.playerStore.playing ||
+				!comparePath(file.path, store.currentFile.path) ||
+				store.currentSourceKind !== 'offline' ||
+				store.currentFile.cached ||
+				source.kind !== 'server'
+			) {
+				releaseUrl(source.url)
+				return false
+			}
+			runInAction(() => {
+				store.currentSourceKind = 'server'
+			})
+			const resumeTime = requestedResumeTime ?? store.playerStore.getProgress()
+			store.playerStore.loadSource({
+				format: getAudioFormat(file),
+				resumeTime,
+				url: source.url,
+			})
+			return true
+		},
 		torrentInfo: emptyTorrentInfo(),
 
 		updateCached({ path }, cached) {
@@ -577,12 +1039,22 @@ export const useBookStore = ({ ih: initialInfoHash, playerStore }) => {
 		store.playerStore.setLifecycleHandlers({
 			onEnd: store.handlePlaybackEnd,
 			onError: store.handlePlaybackError,
-			onPause: () => store.saveCurrentPlaying({ force: true }),
+			onLoad: store.handlePlaybackLoad,
+			onPause: store.handlePlaybackPause,
+			onPlay: store.handlePlaybackPlay,
 		})
 		return () => {
 			store.playerStore.setLifecycleHandlers()
 		}
 	}, [store])
+
+	React.useEffect(
+		() =>
+			subscribeToOfflineChanges((change) => {
+				reconcileOfflineChange(store, change).catch(store.handlePlaybackError)
+			}),
+		[store]
+	)
 
 	React.useEffect(() => {
 		const interval = setInterval(() => {

@@ -17,6 +17,17 @@ import type { TorrentManager } from './torrent/manager'
 import { createTorrentRoutes, fileResponse } from './torrent/routes'
 
 const LEADING_SLASH_PATTERN = /^\/+/
+const FRESH_FRONTEND_CACHE_CONTROL = 'no-cache, no-store, must-revalidate'
+const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+const PRIVATE_API_CACHE_CONTROL = 'private, no-store'
+
+const frontendCacheControl = (
+	path: string,
+	frontendDirectory: string
+): string =>
+	path.includes(`${join(frontendDirectory, 'assets')}/`)
+		? IMMUTABLE_ASSET_CACHE_CONTROL
+		: FRESH_FRONTEND_CACHE_CONTROL
 
 export interface AppDependencies {
 	config: AppConfig
@@ -52,6 +63,10 @@ export const createApp = ({
 			requestId: context.get('requestId'),
 			status: context.res.status,
 		})
+	})
+	app.use('/api/*', async (context, next) => {
+		await next()
+		context.header('Cache-Control', PRIVATE_API_CACHE_CONTROL)
 	})
 
 	app.get('/api/health', (context) => {
@@ -123,9 +138,10 @@ export const createApp = ({
 	if (serveFrontend) {
 		const staticFiles = serveStatic({
 			onFound: (path, context) => {
-				if (path.includes(`${join(config.frontendDirectory, 'assets')}/`)) {
-					context.header('Cache-Control', 'public, max-age=31536000, immutable')
-				}
+				context.header(
+					'Cache-Control',
+					frontendCacheControl(path, config.frontendDirectory)
+				)
 			},
 			precompressed: true,
 			root: config.frontendDirectory,
@@ -134,6 +150,12 @@ export const createApp = ({
 		app.get(
 			'*',
 			serveStatic({
+				onFound: (path, context) => {
+					context.header(
+						'Cache-Control',
+						frontendCacheControl(path, config.frontendDirectory)
+					)
+				},
 				path: 'index.html',
 				root: config.frontendDirectory,
 			})

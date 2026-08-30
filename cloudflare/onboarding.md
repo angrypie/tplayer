@@ -34,6 +34,7 @@ account, with these permissions:
 - Account / Cloudflare Tunnel / Edit
 - Account / Access: Apps and Policies / Edit
 - Zone / DNS / Edit
+- Zone / Cache Purge / Purge
 
 Copy the ignored environment template and fill it locally:
 
@@ -97,6 +98,20 @@ bun run cloudflare:verify
 The verification succeeds only when the managed resources have no drift, the
 local UI and API respond, and the public hostname redirects through Cloudflare
 Access.
+
+After deploying a new frontend, purge only the non-fingerprinted entry points
+so browsers cannot receive an older app shell, service worker, or bootstrap
+library response:
+
+```sh
+bun run cloudflare:purge --yes
+```
+
+This command requires `--yes` and sends a single-file purge containing exactly
+`https://tplayer.angrypie.dev/`, `https://tplayer.angrypie.dev/sw.js`,
+`https://tplayer.angrypie.dev/sw-upgrade-v2.js`, and
+`https://tplayer.angrypie.dev/api/torrents`. It does not purge the whole zone,
+fingerprinted assets, media URLs, or any other API response.
 
 ## Snapshots and rollback
 

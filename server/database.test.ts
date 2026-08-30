@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AppDatabase } from './database'
-import { reportBenchmark } from './test/harness'
+import { reportBenchmark } from './test/benchmark'
 
 const DATABASE_TEST_TIMEOUT_MS = 15_000
 const HISTORY_ROWS = 10_000

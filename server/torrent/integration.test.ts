@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { reportBenchmark } from '../test/benchmark'
 import {
 	delay,
 	PrivateSwarmHarness,
 	readResponse,
-	reportBenchmark,
 	sha256,
 } from '../test/harness'
 import type { PreloadStatus } from './manager'
@@ -73,6 +73,39 @@ describe('Hono and WebTorrent private swarm integration', () => {
 			const harness = await PrivateSwarmHarness.start()
 			try {
 				await harness.register()
+				const legacyShellList = await harness.app.request('/api/torrents')
+				expect(legacyShellList.headers.get('clear-site-data')).toBe('"cache"')
+				const currentShellList = await harness.app.request('/api/torrents', {
+					headers: { 'X-TPlayer-App-Shell': '2' },
+				})
+				expect(currentShellList.headers.get('clear-site-data')).toBeNull()
+				const legacyShellRegistration = await harness.app.request(
+					'/api/torrents',
+					{
+						body: JSON.stringify({ torrentId: harness.infoHash }),
+						headers: { 'Content-Type': 'application/json' },
+						method: 'POST',
+					}
+				)
+				expect(legacyShellRegistration.status).toBe(202)
+				expect(legacyShellRegistration.headers.get('clear-site-data')).toBe(
+					'"cache"'
+				)
+				const currentShellRegistration = await harness.app.request(
+					'/api/torrents',
+					{
+						body: JSON.stringify({ torrentId: harness.infoHash }),
+						headers: {
+							'Content-Type': 'application/json',
+							'X-TPlayer-App-Shell': '2',
+						},
+						method: 'POST',
+					}
+				)
+				expect(currentShellRegistration.status).toBe(202)
+				expect(
+					currentShellRegistration.headers.get('clear-site-data')
+				).toBeNull()
 				const [fixtureFile] = harness.fixture.files
 				if (!fixtureFile) {
 					throw new Error('Private swarm fixture has no primary audio file')

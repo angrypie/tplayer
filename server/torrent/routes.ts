@@ -10,6 +10,14 @@ interface RegisterTorrentBody {
 	torrentId?: unknown
 }
 
+const APP_SHELL_VERSION_HEADER = 'X-TPlayer-App-Shell'
+const CURRENT_APP_SHELL_VERSION = '2'
+
+const clearLegacyAppShellCache = (request: Request): Record<string, string> =>
+	request.headers.get(APP_SHELL_VERSION_HEADER) === CURRENT_APP_SHELL_VERSION
+		? {}
+		: { 'Clear-Site-Data': '"cache"' }
+
 const contentDisposition = (name: string): string =>
 	`inline; filename*=UTF-8''${encodeURIComponent(name)}`
 
@@ -74,7 +82,9 @@ export const createTorrentRoutes = ({
 		})
 	)
 
-	routes.get('/torrents', (context) => context.json(manager.list()))
+	routes.get('/torrents', (context) =>
+		context.json(manager.list(), 200, clearLegacyAppShellCache(context.req.raw))
+	)
 
 	routes.post('/torrents', async (context) => {
 		let body: RegisterTorrentBody
@@ -102,7 +112,11 @@ export const createTorrentRoutes = ({
 				422
 			)
 		}
-		return context.json(manager.register(body.torrentId), 202)
+		return context.json(
+			manager.register(body.torrentId),
+			202,
+			clearLegacyAppShellCache(context.req.raw)
+		)
 	})
 
 	routes.get('/torrents/:infoHash', async (context) => {

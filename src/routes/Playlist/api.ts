@@ -1,6 +1,20 @@
-import { type BookStorage, type PlaybackState, storage } from '~/storage'
+import {
+	type BookStorage,
+	type OfflineFileState,
+	type PlaybackState,
+	storage,
+} from '~/storage'
+import {
+	OfflineCacheManager,
+	type OfflineCacheOptions,
+	type OfflineCacheProgress,
+	type OfflineCacheProgressListener,
+	type OfflineCacheRequestOptions,
+} from './offlineCache'
 
 const API_ROOT = '/api/torrents'
+const APP_SHELL_VERSION_HEADER = 'X-TPlayer-App-Shell'
+const CURRENT_APP_SHELL_VERSION = '2'
 const DEFAULT_MIME_TYPE = 'application/octet-stream'
 
 type Fetcher = (
@@ -9,6 +23,7 @@ type Fetcher = (
 
 export interface TorrentFileReference {
 	id: string
+	length: number
 	mimeType?: string
 	path: readonly string[]
 }
@@ -17,8 +32,9 @@ export interface TorrentFileDto extends TorrentFileReference {
 	cached?: boolean
 	downloaded?: number
 	isCombined?: boolean
-	length: number
 	name: string
+	offlineDownloadedBytes?: number
+	offlineState?: 'available' | 'failed' | 'paused' | 'saving' | 'unavailable'
 	progress?: number
 	state?: '' | 'loading' | 'ready'
 }
@@ -64,7 +80,13 @@ export interface PreloadStatus {
 
 export interface TorrentApiClientOptions {
 	fetcher?: Fetcher
+	offlineCache?: Omit<OfflineCacheOptions, 'fetcher'>
 	repository?: BookStorage
+}
+
+export interface PlayableSource {
+	kind: 'offline' | 'server'
+	url: string
 }
 
 export class ApiError extends Error {
@@ -248,14 +270,31 @@ const readDate = (value: unknown): Date => {
 const directFileUrl = (infoHash: string, fileId: string): string =>
 	`${API_ROOT}/${encodeURIComponent(normalizeInfoHash(infoHash))}/files/${encodeURIComponent(fileId)}`
 
+const persistedOfflineState = (
+	state: OfflineFileState | undefined
+): TorrentFileDto['offlineState'] => {
+	if (state?.complete) {
+		return 'available'
+	}
+	return state ? 'paused' : undefined
+}
+
 export class TorrentApiClient {
 	private readonly fetcher: Fetcher
-	private readonly offlineDownloads = new Map<string, Promise<Blob>>()
+	private readonly offlineCache: OfflineCacheManager
 	private readonly repository: BookStorage
 
-	constructor({ fetcher, repository = storage }: TorrentApiClientOptions = {}) {
+	constructor({
+		fetcher,
+		offlineCache,
+		repository = storage,
+	}: TorrentApiClientOptions = {}) {
 		this.fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init))
 		this.repository = repository
+		this.offlineCache = new OfflineCacheManager(repository, {
+			...offlineCache,
+			fetcher: this.fetcher,
+		})
 	}
 
 	async getTorrentInfo(infoHash: string): Promise<TorrentInfoDto> {
@@ -279,44 +318,68 @@ export class TorrentApiClient {
 		return await this.withOfflineState(details)
 	}
 
-	async getPlayableUrl(
+	async getPlayableSource(
 		infoHash: string,
 		file: TorrentFileReference
-	): Promise<string> {
+	): Promise<PlayableSource> {
 		const normalizedHash = normalizeInfoHash(infoHash)
-		const stored = await this.repository.getFile(
+		const stored = await this.repository.getFileBlob(
 			normalizedHash,
 			pathKey(file.path)
 		)
 		if (stored) {
-			return URL.createObjectURL(stored.file)
+			return { kind: 'offline', url: URL.createObjectURL(stored) }
 		}
-		return directFileUrl(normalizedHash, file.id)
+		return { kind: 'server', url: directFileUrl(normalizedHash, file.id) }
+	}
+
+	async cacheFileForOffline(
+		infoHash: string,
+		file: TorrentFileReference,
+		onProgress?: OfflineCacheProgressListener,
+		options?: OfflineCacheRequestOptions
+	): Promise<void> {
+		const normalizedHash = normalizeInfoHash(infoHash)
+		await this.offlineCache.cacheFile(
+			normalizedHash,
+			{
+				length: file.length,
+				mimeType: file.mimeType,
+				path: file.path,
+				url: directFileUrl(normalizedHash, file.id),
+			},
+			onProgress,
+			options
+		)
 	}
 
 	async downloadFileForOffline(
 		infoHash: string,
-		file: TorrentFileReference
+		file: TorrentFileReference,
+		onProgress?: (progress: OfflineCacheProgress) => void
 	): Promise<Blob> {
 		const normalizedHash = normalizeInfoHash(infoHash)
 		const storedPath = pathKey(file.path)
-		const stored = await this.repository.getFile(normalizedHash, storedPath)
+		const stored = await this.repository.getFileBlob(normalizedHash, storedPath)
 		if (stored) {
-			return stored.file
+			return stored
 		}
+		await this.cacheFileForOffline(normalizedHash, file, onProgress)
+		const completed = await this.repository.getFileBlob(
+			normalizedHash,
+			storedPath
+		)
+		if (!completed) {
+			throw new Error('Offline file completed without readable bytes')
+		}
+		return completed
+	}
 
-		const key = `${normalizedHash}\0${storedPath}`
-		const activeDownload = this.offlineDownloads.get(key)
-		if (activeDownload) {
-			return await activeDownload
-		}
-		const download = this.fetchAndStoreFile(normalizedHash, file, storedPath)
-		this.offlineDownloads.set(key, download)
-		try {
-			return await download
-		} finally {
-			this.offlineDownloads.delete(key)
-		}
+	async cancelOfflineDownloads(
+		infoHash: string,
+		path?: readonly string[]
+	): Promise<void> {
+		await this.offlineCache.cancel(infoHash, path)
 	}
 
 	async getFileUrl(
@@ -326,18 +389,17 @@ export class TorrentApiClient {
 		try {
 			const normalizedHash = normalizeInfoHash(infoHash)
 			const requestedPath = isPath(fileOrPath) ? fileOrPath : fileOrPath.path
-			const stored = await this.repository.getFile(
+			const stored = await this.repository.getFileBlob(
 				normalizedHash,
 				pathKey(requestedPath)
 			)
 			if (stored) {
-				return URL.createObjectURL(stored.file)
+				return URL.createObjectURL(stored)
 			}
 			const file = isPath(fileOrPath)
 				? await this.fileByPath(normalizedHash, fileOrPath)
 				: fileOrPath
-			const blob = await this.downloadFileForOffline(normalizedHash, file)
-			return URL.createObjectURL(blob)
+			return directFileUrl(normalizedHash, file.id)
 		} catch {
 			return null
 		}
@@ -346,7 +408,10 @@ export class TorrentApiClient {
 	async registerTorrent(source: string): Promise<TorrentRegistration> {
 		const response = await this.fetcher(API_ROOT, {
 			body: JSON.stringify({ torrentId: source.trim() }),
-			headers: { 'Content-Type': 'application/json' },
+			headers: {
+				'Content-Type': 'application/json',
+				[APP_SHELL_VERSION_HEADER]: CURRENT_APP_SHELL_VERSION,
+			},
 			method: 'POST',
 		})
 		if (!response.ok) {
@@ -376,7 +441,11 @@ export class TorrentApiClient {
 
 	async getAvailableTorrents(): Promise<AvailableTorrent[]> {
 		try {
-			const response = await this.fetcher(API_ROOT)
+			const response = await this.fetcher(API_ROOT, {
+				headers: {
+					[APP_SHELL_VERSION_HEADER]: CURRENT_APP_SHELL_VERSION,
+				},
+			})
 			if (!response.ok) {
 				throw await responseError(response)
 			}
@@ -416,6 +485,15 @@ export class TorrentApiClient {
 		} catch {
 			return []
 		}
+	}
+
+	async getServerCachedBytes(infoHash: string): Promise<number | null> {
+		const normalizedHash = normalizeInfoHash(infoHash)
+		const torrents = await this.getAvailableTorrents()
+		return (
+			torrents.find((torrent) => torrent.infoHash === normalizedHash)
+				?.cachedBytes ?? null
+		)
 	}
 
 	async deleteAvailableTorrent(infoHash: string): Promise<boolean> {
@@ -467,20 +545,6 @@ export class TorrentApiClient {
 		}
 	}
 
-	private async fetchAndStoreFile(
-		infoHash: string,
-		file: TorrentFileReference,
-		storedPath: string
-	): Promise<Blob> {
-		const response = await this.fetcher(directFileUrl(infoHash, file.id))
-		if (!response.ok) {
-			throw await responseError(response)
-		}
-		const blob = await response.blob()
-		await this.repository.addFile(infoHash, storedPath, blob)
-		return blob
-	}
-
 	private async fileByPath(
 		infoHash: string,
 		path: readonly string[]
@@ -529,15 +593,24 @@ export class TorrentApiClient {
 		info: TorrentInfoDto,
 		state?: PlaybackState
 	): Promise<TorrentInfoDto> {
-		const files = await this.repository.getAllFilesForTorrent(info.infoHash)
-		const cachedPaths = new Set(files.map((file) => file.path))
+		const offlineStates = await this.repository.getOfflineFileStatesForTorrent(
+			info.infoHash
+		)
+		const statesByPath = new Map(
+			offlineStates.map((offlineState) => [offlineState.path, offlineState])
+		)
 		return {
 			...info,
-			files: info.files.map((file) => ({
-				...file,
-				cached: cachedPaths.has(pathKey(file.path)),
-				state: 'ready',
-			})),
+			files: info.files.map((file) => {
+				const offlineState = statesByPath.get(pathKey(file.path))
+				return {
+					...file,
+					cached: offlineState?.complete ?? false,
+					offlineDownloadedBytes: offlineState?.downloadedBytes ?? 0,
+					offlineState: persistedOfflineState(offlineState),
+					state: 'ready',
+				}
+			}),
 			...(state ? { state } : {}),
 		}
 	}
@@ -548,15 +621,30 @@ export const torrentApi = new TorrentApiClient()
 export const getTorrentInfo = (infoHash: string): Promise<TorrentInfoDto> =>
 	torrentApi.getTorrentInfo(infoHash)
 
-export const getPlayableUrl = (
+export const getPlayableSource = (
 	infoHash: string,
 	file: TorrentFileReference
-): Promise<string> => torrentApi.getPlayableUrl(infoHash, file)
+): Promise<PlayableSource> => torrentApi.getPlayableSource(infoHash, file)
+
+export const cacheFileForOffline = (
+	infoHash: string,
+	file: TorrentFileReference,
+	onProgress?: OfflineCacheProgressListener,
+	options?: OfflineCacheRequestOptions
+): Promise<void> =>
+	torrentApi.cacheFileForOffline(infoHash, file, onProgress, options)
 
 export const downloadFileForOffline = (
 	infoHash: string,
-	file: TorrentFileReference
-): Promise<Blob> => torrentApi.downloadFileForOffline(infoHash, file)
+	file: TorrentFileReference,
+	onProgress?: OfflineCacheProgressListener
+): Promise<Blob> =>
+	torrentApi.downloadFileForOffline(infoHash, file, onProgress)
+
+export const cancelOfflineDownloads = (
+	infoHash: string,
+	path?: readonly string[]
+): Promise<void> => torrentApi.cancelOfflineDownloads(infoHash, path)
 
 export const getFileUrl = (
 	infoHash: string,
@@ -568,6 +656,10 @@ export const registerTorrent = (source: string): Promise<TorrentRegistration> =>
 
 export const getAvailableTorrents = (): Promise<AvailableTorrent[]> =>
 	torrentApi.getAvailableTorrents()
+
+export const getServerCachedBytes = (
+	infoHash: string
+): Promise<number | null> => torrentApi.getServerCachedBytes(infoHash)
 
 export const deleteAvailableTorrent = (infoHash: string): Promise<boolean> =>
 	torrentApi.deleteAvailableTorrent(infoHash)

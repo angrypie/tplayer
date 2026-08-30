@@ -454,12 +454,3 @@ export const readResponse = async (
 			durationMs === 0 ? 0 : totalBytes / FIXTURE_MIB / (durationMs / 1000),
 	}
 }
-
-export const reportBenchmark = (
-	name: string,
-	measurements: Readonly<Record<string, number | string>>
-): void => {
-	process.stdout.write(
-		`BENCHMARK ${JSON.stringify({ bun: process.versions.bun ?? 'unknown', name, ...measurements })}\n`
-	)
-}

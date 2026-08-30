@@ -17,6 +17,7 @@ export default defineConfig({
 				'mask-icon.svg',
 				'apple-touch-icon-180x180.png',
 			],
+			injectRegister: false,
 			manifest: {
 				display: 'standalone',
 				icons: [
@@ -47,6 +48,11 @@ export default defineConfig({
 				theme_color: '#ffffff',
 			},
 			registerType: 'autoUpdate',
+			workbox: {
+				clientsClaim: true,
+				importScripts: ['/sw-upgrade-v2.js'],
+				skipWaiting: true,
+			},
 		}),
 	],
 	resolve: {

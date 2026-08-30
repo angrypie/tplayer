@@ -9,7 +9,9 @@ const noOperation = () => undefined
 const defaultLifecycleHandlers = {
 	onEnd: noOperation,
 	onError: noOperation,
+	onLoad: noOperation,
 	onPause: noOperation,
+	onPlay: noOperation,
 }
 
 const revokeUrl = (url) => {
@@ -20,12 +22,10 @@ const revokeUrl = (url) => {
 
 const invokeHandler = (handler, ...arguments_) => {
 	try {
-		const result = handler(...arguments_)
-		if (result instanceof Promise) {
-			result.catch(noOperation)
-		}
+		return Promise.resolve(handler(...arguments_)).catch(noOperation)
 	} catch {
 		// Lifecycle callbacks must not break Howler's event dispatch.
+		return Promise.resolve()
 	}
 }
 
@@ -53,7 +53,12 @@ export const usePlayerStore = () => {
 			store.finishPlayback()
 			store.loaded = false
 			store.loading = false
+			store.ending = false
 			player.unloadSource()
+		},
+
+		get desiredPlaying() {
+			return store.playing || store.playWhenReady
 		},
 
 		dispose() {
@@ -61,7 +66,11 @@ export const usePlayerStore = () => {
 			store.lifecycleHandlers = defaultLifecycleHandlers
 			player.dispose()
 		},
+		ending: false,
 		error: null,
+		finishEnding() {
+			store.ending = false
+		},
 		finishPlayback() {
 			store.playWhenReady = false
 			store.playing = false
@@ -77,10 +86,14 @@ export const usePlayerStore = () => {
 
 		handleEnd(playbackState) {
 			store.finishPlayback()
-			invokeHandler(store.lifecycleHandlers.onEnd, playbackState)
+			store.ending = true
+			invokeHandler(store.lifecycleHandlers.onEnd, playbackState).finally(
+				store.finishEnding
+			)
 		},
 
 		handleError(error) {
+			store.ending = false
 			store.error = error
 			store.loading = false
 			store.playWhenReady = false
@@ -92,8 +105,8 @@ export const usePlayerStore = () => {
 			store.error = null
 			store.loaded = true
 			store.loading = false
+			invokeHandler(store.lifecycleHandlers.onLoad)
 			if (store.playWhenReady) {
-				store.playWhenReady = false
 				store.play()
 			}
 		},
@@ -103,15 +116,29 @@ export const usePlayerStore = () => {
 			invokeHandler(store.lifecycleHandlers.onPause)
 		},
 
+		handlePlay() {
+			store.error = null
+			store.loaded = true
+			store.loading = false
+			store.playWhenReady = false
+			store.playing = true
+			invokeHandler(store.lifecycleHandlers.onPlay)
+		},
+
+		get hasSource() {
+			return Boolean(store.audio)
+		},
+
 		lifecycleHandlers: defaultLifecycleHandlers,
 		loaded: false,
 		loading: false,
 
 		loadSource({ autoplay = false, format, resumeTime = 0, url }) {
-			const shouldPlay = autoplay || store.playing
+			const shouldPlay = autoplay || store.playing || store.playWhenReady
 			revokeUrl(store.audio)
 			store.audio = url
 			store.error = null
+			store.ending = false
 			store.loaded = false
 			store.loading = true
 			store.playing = false
@@ -135,10 +162,17 @@ export const usePlayerStore = () => {
 		},
 
 		play() {
-			store.player.changeRate(store.rate)
-			if (store.player.play()) {
-				store.playing = true
+			if (!(store.audio && !store.ending)) {
+				store.playWhenReady = false
+				return false
 			}
+			store.playWhenReady = true
+			store.player.changeRate(store.rate)
+			if (!store.player.play()) {
+				store.playWhenReady = false
+				return false
+			}
+			return true
 		},
 		player,
 		playing: false,
@@ -164,8 +198,12 @@ export const usePlayerStore = () => {
 		},
 
 		togglePlaying(isPlaying) {
-			const { playing, play, pause } = store
-			const shouldPlay = typeof isPlaying === 'boolean' ? isPlaying : !playing
+			if (store.ending) {
+				return
+			}
+			const { desiredPlaying, play, pause } = store
+			const shouldPlay =
+				typeof isPlaying === 'boolean' ? isPlaying : !desiredPlaying
 			if (shouldPlay) {
 				play()
 			} else {
@@ -180,6 +218,7 @@ export const usePlayerStore = () => {
 		onError: store.handleError,
 		onLoad: store.handleLoad,
 		onPause: store.handlePause,
+		onPlay: store.handlePlay,
 	})
 
 	return store

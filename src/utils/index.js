@@ -16,7 +16,7 @@ const AUDIO_FORMATS_BY_EXTENSION = new Map([
 	['caf', 'caf'],
 	['flac', 'flac'],
 	['m4a', 'm4a'],
-	['m4b', 'm4b'],
+	['m4b', 'mp4'],
 	['mp3', 'mp3'],
 	['mp4', 'mp4'],
 	['oga', 'oga'],
@@ -119,15 +119,19 @@ export const comparePath = (a, b) =>
 	normalizePath(a).join('/') === normalizePath(b).join('/')
 
 export const getAudioFormat = (file) => {
+	const pathParts = normalizePath(file?.path)
+	const fileName = String(file?.name ?? pathParts.at(-1) ?? '').toLowerCase()
+	const extension = getFileExtension(fileName)
+	if (extension === 'm4b') {
+		return AUDIO_FORMATS_BY_EXTENSION.get(extension)
+	}
+
 	const mimeType = file?.mimeType?.split(';', 1)[0]?.trim().toLowerCase()
 	const mimeFormat = mimeType ? AUDIO_FORMATS_BY_MIME_TYPE.get(mimeType) : null
 	if (mimeFormat) {
 		return mimeFormat
 	}
 
-	const pathParts = normalizePath(file?.path)
-	const fileName = String(file?.name ?? pathParts.at(-1) ?? '').toLowerCase()
-	const extension = getFileExtension(fileName)
 	return AUDIO_FORMATS_BY_EXTENSION.get(extension) ?? null
 }
 

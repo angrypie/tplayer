@@ -7,6 +7,7 @@ const defaultCallbacks = {
 	onError: noOperation,
 	onLoad: noOperation,
 	onPause: noOperation,
+	onPlay: noOperation,
 }
 
 const toPlaybackError = (error) => {
@@ -64,6 +65,11 @@ export class Player {
 			onpause: () => {
 				if (this.isCurrentRevision(revision)) {
 					this.callbacks.onPause()
+				}
+			},
+			onplay: () => {
+				if (this.isCurrentRevision(revision)) {
+					this.callbacks.onPlay()
 				}
 			},
 			onplayerror: (_soundId, error) => {
