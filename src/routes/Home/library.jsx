@@ -9,6 +9,81 @@ import {
 } from '~/routes/Playlist/api'
 
 const recentBooksNumber = 2
+const availableBooksPollIntervalMs = 3000
+
+const deleteErrorMessage = (error) =>
+	error instanceof Error
+		? error.message
+		: 'The server could not delete this torrent. Please try again.'
+
+const deleteButtonLabel = (deleting, error) => {
+	if (deleting) {
+		return 'Deleting…'
+	}
+	return error ? 'Retry delete' : 'Delete'
+}
+
+const availableBookProgress = (book) => {
+	if ((book.totalBytes ?? 0) > 0) {
+		return Math.min(
+			100,
+			Math.max(0, ((book.downloadedBytes ?? 0) / book.totalBytes) * 100)
+		)
+	}
+	return Math.min(100, Math.max(0, (book.progress ?? 0) * 100))
+}
+
+const availableBookStatus = (book) => {
+	if (book.state === 'fetching_metadata') {
+		return 'Fetching metadata'
+	}
+	if (book.state === 'downloading') {
+		return `Downloading ${Math.floor(availableBookProgress(book))}%`
+	}
+	if (book.state === 'completed') {
+		return 'Ready'
+	}
+	if (book.state === 'failed') {
+		return 'Failed'
+	}
+	if (book.state === 'idle') {
+		return 'Idle'
+	}
+	return 'Stored on server'
+}
+
+const AvailableBookStatus = ({ book, deleting }) => {
+	if (deleting) {
+		return (
+			<div className='mt-2 text-muted-foreground text-sm' role='status'>
+				Stopping download and deleting cached files…
+			</div>
+		)
+	}
+	const progress = availableBookProgress(book)
+	return (
+		<div className='mt-2 space-y-1' role='status'>
+			<div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-sm'>
+				<span className='font-medium text-foreground'>
+					{availableBookStatus(book)}
+				</span>
+				{(book.numPeers ?? 0) > 0 ? (
+					<span>
+						{book.numPeers} {book.numPeers === 1 ? 'peer' : 'peers'}
+					</span>
+				) : null}
+			</div>
+			{book.state === 'downloading' && (book.totalBytes ?? 0) > 0 ? (
+				<progress
+					aria-label={`Download progress for ${book.name}`}
+					className='h-1.5 w-full accent-primary'
+					max={100}
+					value={progress}
+				/>
+			) : null}
+		</div>
+	)
+}
 
 export const Library = observer(({ store }) => {
 	const renderBook = ({ info, ih, state }, i) => {
@@ -81,34 +156,88 @@ const partition = (arr, f) =>
 
 export const AvailableBooks = () => {
 	const [books, setBooks] = React.useState([])
+	const [deleteErrors, setDeleteErrors] = React.useState({})
+	const [deletingInfoHashes, setDeletingInfoHashes] = React.useState(
+		() => new Set()
+	)
 	const [isLoading, setIsLoading] = React.useState(false)
 	const [isVisible, setIsVisible] = React.useState(false)
+	const deleteRequestsRef = React.useRef(new Set())
+	const requestIdRef = React.useRef(0)
 
-	const fetchBooks = async () => {
-		setIsLoading(true)
+	React.useEffect(
+		() => () => {
+			requestIdRef.current += 1
+		},
+		[]
+	)
+
+	const fetchBooks = React.useCallback(async (showLoading = false) => {
+		const requestId = requestIdRef.current + 1
+		requestIdRef.current = requestId
+		if (showLoading) {
+			setIsLoading(true)
+		}
 		try {
 			const torrents = await getAvailableTorrents()
+			if (requestId !== requestIdRef.current) {
+				return
+			}
 			const sortedTorrents = torrents.sort(
 				(a, b) => new Date(b.lastSeen) - new Date(a.lastSeen)
 			)
 			setBooks(sortedTorrents)
-			setIsVisible(true)
 		} finally {
-			setIsLoading(false)
+			if (showLoading && requestId === requestIdRef.current) {
+				setIsLoading(false)
+			}
 		}
-	}
+	}, [])
+
+	React.useEffect(() => {
+		if (!isVisible) {
+			return
+		}
+		const interval = setInterval(() => {
+			fetchBooks().catch(() => undefined)
+		}, availableBooksPollIntervalMs)
+		return () => clearInterval(interval)
+	}, [fetchBooks, isVisible])
 
 	const handleDelete = async (infoHash, name) => {
+		if (deleteRequestsRef.current.has(infoHash)) {
+			return
+		}
 		// biome-ignore lint/suspicious/noAlert: Keep the existing confirmation step without introducing a new dialog system.
 		const confirmed = window.confirm(`Delete "${name}" from server?`)
 		if (!confirmed) {
 			return
 		}
-		const ok = await deleteAvailableTorrent(infoHash)
-		if (ok) {
+		deleteRequestsRef.current.add(infoHash)
+		setDeletingInfoHashes((current) => new Set(current).add(infoHash))
+		setDeleteErrors((current) => {
+			const next = { ...current }
+			delete next[infoHash]
+			return next
+		})
+		try {
+			await deleteAvailableTorrent(infoHash)
+			requestIdRef.current += 1
 			setBooks((prevBooks) =>
 				prevBooks.filter((book) => book.infoHash !== infoHash)
 			)
+		} catch (error) {
+			setDeleteErrors((current) => ({
+				...current,
+				[infoHash]: deleteErrorMessage(error),
+			}))
+		} finally {
+			deleteRequestsRef.current.delete(infoHash)
+			setDeletingInfoHashes((current) => {
+				const next = new Set(current)
+				next.delete(infoHash)
+				return next
+			})
 		}
 	}
 
@@ -121,8 +250,15 @@ export const AvailableBooks = () => {
 	}
 
 	const hideBooks = () => {
+		requestIdRef.current += 1
 		setIsVisible(false)
 		setBooks([])
+		setDeleteErrors({})
+	}
+
+	const showBooks = async () => {
+		await fetchBooks(true)
+		setIsVisible(true)
 	}
 
 	return (
@@ -146,35 +282,48 @@ export const AvailableBooks = () => {
 								No books available on server
 							</div>
 						) : (
-							books.map((book) => (
-								<div
-									className='rounded-lg bg-[var(--bg-elevated)] p-4'
-									key={book.infoHash}
-								>
-									<Link href={`/playlist/${book.infoHash}`}>
-										<div className='cursor-pointer transition-transform duration-200 hover:-translate-y-0.5'>
-											<div className='mb-2 break-words font-medium'>
-												{book.name}
-											</div>
-											<div className='flex justify-between text-[var(--text-secondary)] text-sm'>
-												<span>
-													Last requested: {book.lastSeen.toLocaleDateString()}
-												</span>
-											</div>
-										</div>
-									</Link>
-									<Button
-										className='mt-3 opacity-40 transition-opacity duration-200 hover:opacity-100'
-										data-book-name={book.name}
-										data-info-hash={book.infoHash}
-										onClick={handleDeleteClick}
-										size='sm'
-										variant='link'
+							books.map((book) => {
+								const deleting = deletingInfoHashes.has(book.infoHash)
+								const deleteError = deleteErrors[book.infoHash]
+								return (
+									<div
+										aria-busy={deleting}
+										className='rounded-lg bg-[var(--bg-elevated)] p-4'
+										key={book.infoHash}
 									>
-										Delete
-									</Button>
-								</div>
-							))
+										<Link href={`/playlist/${book.infoHash}`}>
+											<div className='cursor-pointer transition-transform duration-200 hover:-translate-y-0.5'>
+												<div className='mb-2 break-words font-medium'>
+													{book.name}
+												</div>
+												<div className='flex justify-between text-[var(--text-secondary)] text-sm'>
+													<span>
+														Last requested: {book.lastSeen.toLocaleDateString()}
+													</span>
+												</div>
+												<AvailableBookStatus book={book} deleting={deleting} />
+											</div>
+										</Link>
+										{deleteError ? (
+											<p className='mt-2 text-destructive text-sm' role='alert'>
+												Delete failed: {deleteError}
+											</p>
+										) : null}
+										<Button
+											className='mt-3 opacity-40 transition-opacity duration-200 hover:opacity-100'
+											data-book-name={book.name}
+											data-info-hash={book.infoHash}
+											disabled={deleting}
+											onClick={handleDeleteClick}
+											size='sm'
+											type='button'
+											variant='link'
+										>
+											{deleteButtonLabel(deleting, deleteError)}
+										</Button>
+									</div>
+								)
+							})
 						)}
 					</div>
 				</>
@@ -182,7 +331,7 @@ export const AvailableBooks = () => {
 				<Button
 					className='mt-2 p-2 underline underline-offset-4 opacity-30 transition-opacity duration-200 hover:opacity-100 disabled:cursor-not-allowed'
 					disabled={isLoading}
-					onClick={fetchBooks}
+					onClick={showBooks}
 					size='sm'
 					variant='link'
 				>

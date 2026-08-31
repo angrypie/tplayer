@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { reportBenchmark } from '../test/benchmark'
 import {
 	delay,
@@ -6,7 +6,7 @@ import {
 	readResponse,
 	sha256,
 } from '../test/harness'
-import type { PreloadStatus } from './manager'
+import type { PreloadStatus, TorrentStatus } from './manager'
 
 const MIB = 1024 * 1024
 const INTEGRATION_TIMEOUT_MS = 30_000
@@ -66,6 +66,80 @@ const waitForPreload = async (
 		: status
 }
 
+const waitForTorrentStatus = async (
+	harness: PrivateSwarmHarness,
+	url: string,
+	observedProgress: number[],
+	previousProgress = 0,
+	polls = 0
+): Promise<TorrentStatus> => {
+	if (polls >= 2000) {
+		throw new Error(
+			'Background torrent download did not complete after 20 seconds'
+		)
+	}
+	await delay(10)
+	const response = await harness.app.request(url)
+	if (!response.ok) {
+		throw new Error(`Torrent status returned ${response.status}`)
+	}
+	const status = (await response.json()) as TorrentStatus
+	if (status.progress < previousProgress) {
+		throw new Error(
+			`Torrent progress moved backwards from ${previousProgress} to ${status.progress}`
+		)
+	}
+	observedProgress.push(status.progress)
+	return status.state === 'fetching_metadata' || status.state === 'downloading'
+		? await waitForTorrentStatus(
+				harness,
+				url,
+				observedProgress,
+				status.progress,
+				polls + 1
+			)
+		: status
+}
+
+const waitForPartialTorrentStatus = async (
+	harness: PrivateSwarmHarness,
+	url: string,
+	polls = 0
+): Promise<TorrentStatus> => {
+	if (polls >= 1000) {
+		throw new Error('Background torrent did not report partial progress')
+	}
+	await delay(10)
+	const response = await harness.app.request(url)
+	if (!response.ok) {
+		throw new Error(`Torrent status returned ${response.status}`)
+	}
+	const status = (await response.json()) as TorrentStatus
+	if (
+		status.state === 'downloading' &&
+		status.downloadedBytes > 0 &&
+		status.downloadedBytes < status.totalBytes
+	) {
+		return status
+	}
+	return await waitForPartialTorrentStatus(harness, url, polls + 1)
+}
+
+const waitForCacheEviction = async (
+	harness: PrivateSwarmHarness,
+	infoHash: string,
+	polls = 0
+): Promise<void> => {
+	if (harness.database.getCacheEntry(infoHash) === null) {
+		return
+	}
+	if (polls >= 1000) {
+		throw new Error('Torrent cache entry was not evicted after 10 seconds')
+	}
+	await delay(10)
+	await waitForCacheEviction(harness, infoHash, polls + 1)
+}
+
 describe('Hono and WebTorrent private swarm integration', () => {
 	test(
 		'serves exact full, closed, open, suffix, single-byte, concurrent, invalid, and HEAD ranges',
@@ -91,10 +165,16 @@ describe('Hono and WebTorrent private swarm integration', () => {
 				expect(legacyShellRegistration.headers.get('clear-site-data')).toBe(
 					'"cache"'
 				)
+				expect(await legacyShellRegistration.json()).toMatchObject({
+					backgroundDownload: false,
+				})
 				const currentShellRegistration = await harness.app.request(
 					'/api/torrents',
 					{
-						body: JSON.stringify({ torrentId: harness.infoHash }),
+						body: JSON.stringify({
+							download: false,
+							torrentId: harness.infoHash,
+						}),
 						headers: {
 							'Content-Type': 'application/json',
 							'X-TPlayer-App-Shell': '2',
@@ -302,6 +382,290 @@ describe('Hono and WebTorrent private swarm integration', () => {
 					expect(sha256(body)).toBe(fixtureFile.sha256)
 				}
 				expect((await harness.torrent()).received).toBe(0)
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'registers and completes a page-independent background download when explicitly requested',
+		async () => {
+			const harness = await PrivateSwarmHarness.start()
+			try {
+				await harness.register(true)
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const initialResponse = await harness.app.request(statusUrl)
+				expect(initialResponse.status).toBe(200)
+				const initial = (await initialResponse.json()) as TorrentStatus
+				expect(initial.metadataReady).toBe(true)
+				expect(['downloading', 'completed'].includes(initial.state)).toBe(true)
+				expect(initial.name).toBe(harness.seedTorrent.name)
+				expect(initial.startedAt).toBeString()
+
+				const listResponse = await harness.app.request('/api/torrents')
+				const listed = (await listResponse.json()) as TorrentStatus[]
+				const listedTorrent = listed.find(
+					(torrent) => torrent.infoHash === harness.infoHash
+				)
+				expect(listedTorrent?.metadataReady).toBe(true)
+				expect(listedTorrent?.state).not.toBe('idle')
+
+				const observedProgress: number[] = []
+				const completed =
+					initial.state === 'completed'
+						? initial
+						: await waitForTorrentStatus(
+								harness,
+								statusUrl,
+								observedProgress,
+								initial.progress
+							)
+				expect(completed.state).toBe('completed')
+				expect(completed.progress).toBe(1)
+				expect(completed.downloadedBytes).toBe(harness.fixture.totalBytes)
+				expect(completed.totalBytes).toBe(harness.fixture.totalBytes)
+				await harness.waitForIdleDrop()
+
+				await harness.stopSeeder()
+				await harness.restartWithoutSeeder()
+				const restartedResponse = await harness.app.request(statusUrl)
+				expect(restartedResponse.status).toBe(200)
+				const restarted = (await restartedResponse.json()) as TorrentStatus
+				expect(restarted.state).toBe('completed')
+				expect(restarted.metadataReady).toBe(true)
+				expect(restarted.progress).toBe(1)
+				expect(harness.manager.health().activeSessions).toBe(0)
+				expect(harness.manager.health().preloadJobs).toBe(0)
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'cancels and deletes a partially downloaded background torrent without waiting for peers',
+		async () => {
+			const harness = await PrivateSwarmHarness.start()
+			try {
+				harness.downloader.throttleDownload(512 * 1024)
+				await harness.register(true)
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const partial = await waitForPartialTorrentStatus(harness, statusUrl)
+				expect(partial.progress).toBeGreaterThan(0)
+				expect(partial.progress).toBeLessThan(1)
+
+				await harness.stopSeeder()
+				const deleteResponse = await Promise.race([
+					harness.app.request(`/api/torrents/${harness.infoHash}`, {
+						method: 'DELETE',
+					}),
+					delay(2000).then(() => {
+						throw new Error('Active background torrent deletion timed out')
+					}),
+				])
+
+				expect(deleteResponse.status).toBe(204)
+				expect((await harness.app.request(statusUrl)).status).toBe(404)
+				const listResponse = await harness.app.request('/api/torrents')
+				const listed = (await listResponse.json()) as TorrentStatus[]
+				expect(
+					listed.some((torrent) => torrent.infoHash === harness.infoHash)
+				).toBe(false)
+				expect(harness.manager.health().activeSessions).toBe(0)
+				expect(harness.manager.health().preloadJobs).toBe(0)
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'preserves a torrent registration when WebTorrent removal fails so deletion can be retried',
+		async () => {
+			const harness = await PrivateSwarmHarness.start(
+				INTEGRATION_TIMEOUT_MS * 2
+			)
+			try {
+				await harness.register()
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const removeSpy = spyOn(harness.downloader, 'remove')
+				try {
+					removeSpy.mockRejectedValueOnce(
+						new Error('Injected WebTorrent remove failure')
+					)
+
+					const failedDelete = await harness.app.request(
+						`/api/torrents/${harness.infoHash}`,
+						{ method: 'DELETE' }
+					)
+					expect(failedDelete.status).toBe(500)
+					expect(removeSpy).toHaveBeenCalledTimes(1)
+
+					const retainedStatusResponse = await harness.app.request(statusUrl)
+					expect(retainedStatusResponse.status).toBe(200)
+					expect(await retainedStatusResponse.json()).toMatchObject({
+						infoHash: harness.infoHash,
+					})
+					const retainedListResponse =
+						await harness.app.request('/api/torrents')
+					const retainedList =
+						(await retainedListResponse.json()) as TorrentStatus[]
+					expect(
+						retainedList.some(
+							(torrent) => torrent.infoHash === harness.infoHash
+						)
+					).toBe(true)
+
+					const retriedDelete = await harness.app.request(
+						`/api/torrents/${harness.infoHash}`,
+						{ method: 'DELETE' }
+					)
+					expect(retriedDelete.status).toBe(204)
+					expect(removeSpy).toHaveBeenCalledTimes(2)
+					expect((await harness.app.request(statusUrl)).status).toBe(404)
+					const deletedListResponse = await harness.app.request('/api/torrents')
+					const deletedList =
+						(await deletedListResponse.json()) as TorrentStatus[]
+					expect(
+						deletedList.some((torrent) => torrent.infoHash === harness.infoHash)
+					).toBe(false)
+				} finally {
+					removeSpy.mockRestore()
+				}
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'downgrades completed status after the bounded cache evicts torrent files',
+		async () => {
+			const harness = await PrivateSwarmHarness.start()
+			try {
+				harness.config.torrent.cacheCapacityBytes = 1
+				await harness.register(true)
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const initialResponse = await harness.app.request(statusUrl)
+				const initial = (await initialResponse.json()) as TorrentStatus
+				const completed =
+					initial.state === 'completed'
+						? initial
+						: await waitForTorrentStatus(
+								harness,
+								statusUrl,
+								[],
+								initial.progress
+							)
+				expect(completed.state).toBe('completed')
+				await harness.waitForIdleDrop()
+				await waitForCacheEviction(harness, harness.infoHash)
+
+				const evictedResponse = await harness.app.request(statusUrl)
+				const evicted = (await evictedResponse.json()) as TorrentStatus
+				expect(evictedResponse.status).toBe(200)
+				expect(evicted.state).toBe('idle')
+				expect(evicted.metadataReady).toBe(true)
+				expect(evicted.downloadedBytes).toBe(0)
+				expect(evicted.totalBytes).toBe(0)
+				expect(evicted.progress).toBe(0)
+				expect(harness.manager.preloadStatus(harness.infoHash)).toBeNull()
+				expect(harness.database.getCacheEntry(harness.infoHash)).toBeNull()
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'lists metadata-pending registrations immediately, restores them after restart, and cancels them on delete',
+		async () => {
+			const harness = await PrivateSwarmHarness.start()
+			try {
+				const pendingInfoHash = 'ffffffffffffffffffffffffffffffffffffffff'
+				const statusUrl = `/api/torrents/${pendingInfoHash}/status`
+				const unknown = await harness.app.request(statusUrl)
+				expect(unknown.status).toBe(404)
+
+				const registrationResponse = await harness.app.request(
+					'/api/torrents',
+					{
+						body: JSON.stringify({
+							download: true,
+							torrentId: pendingInfoHash,
+						}),
+						headers: { 'Content-Type': 'application/json' },
+						method: 'POST',
+					}
+				)
+				expect(registrationResponse.status).toBe(202)
+				expect(await registrationResponse.json()).toEqual({
+					backgroundDownload: true,
+					infoHash: pendingInfoHash,
+					metadataReady: false,
+				})
+
+				const pendingResponse = await harness.app.request(statusUrl)
+				expect(pendingResponse.status).toBe(200)
+				const pending = (await pendingResponse.json()) as TorrentStatus
+				expect(pending.state).toBe('fetching_metadata')
+				expect(pending.metadataReady).toBe(false)
+				expect(pending.name).toBe(`Torrent ${pendingInfoHash}`)
+				expect(pending.startedAt).toBeString()
+
+				const listResponse = await harness.app.request('/api/torrents')
+				const listed = (await listResponse.json()) as Array<
+					TorrentStatus & { firstSeen: string; lastSeen: string }
+				>
+				const listedPending = listed.find(
+					(torrent) => torrent.infoHash === pendingInfoHash
+				)
+				if (!listedPending) {
+					throw new Error('Pending torrent was missing from the torrent list')
+				}
+				expect(listedPending.state).toBe('fetching_metadata')
+				expect(new Date(listedPending.firstSeen).toISOString()).toBe(
+					listedPending.firstSeen
+				)
+				expect(new Date(listedPending.lastSeen).toISOString()).toBe(
+					listedPending.lastSeen
+				)
+
+				await harness.restartWithoutSeeder()
+				const restoredResponse = await harness.app.request(statusUrl)
+				const restored = (await restoredResponse.json()) as TorrentStatus
+				expect(restoredResponse.status).toBe(200)
+				expect(restored.state).toBe('fetching_metadata')
+				expect(harness.manager.health().activeSessions).toBe(1)
+				expect(harness.manager.health().preloadJobs).toBe(1)
+
+				const firstRemoval = harness.manager.remove(pendingInfoHash)
+				const secondRemoval = harness.manager.remove(pendingInfoHash)
+				expect(() => harness.manager.register(pendingInfoHash)).toThrow(
+					'Torrent removal is already in progress'
+				)
+				expect(() => harness.manager.startPreload(pendingInfoHash)).toThrow(
+					'Torrent removal is already in progress'
+				)
+				await expect(
+					harness.manager.details(pendingInfoHash)
+				).rejects.toMatchObject({
+					code: 'torrent_removing',
+					status: 409,
+				})
+				expect(await Promise.all([firstRemoval, secondRemoval])).toEqual([
+					true,
+					true,
+				])
+				expect((await harness.app.request(statusUrl)).status).toBe(404)
+				expect(harness.manager.health().activeSessions).toBe(0)
+				expect(harness.manager.health().preloadJobs).toBe(0)
 			} finally {
 				await harness.close()
 			}

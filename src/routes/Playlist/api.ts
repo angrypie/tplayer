@@ -58,12 +58,44 @@ export interface TorrentRegistration {
 	metadataReady: boolean
 }
 
+export type TorrentServerState =
+	| 'completed'
+	| 'downloading'
+	| 'failed'
+	| 'fetching_metadata'
+	| 'idle'
+
+export interface TorrentServerStatus {
+	downloadedBytes: number
+	downloadSpeed: number
+	error?: string
+	finishedAt?: string
+	infoHash: string
+	metadataReady: boolean
+	name: string
+	numPeers: number
+	progress: number
+	startedAt?: string
+	state: TorrentServerState
+	totalBytes: number
+}
+
 export interface AvailableTorrent {
 	cachedBytes: number
+	downloadedBytes?: number
+	downloadSpeed?: number
+	error?: string
+	finishedAt?: string
 	firstSeen: Date
 	infoHash: string
 	lastSeen: Date
+	metadataReady?: boolean
 	name: string
+	numPeers?: number
+	progress?: number
+	startedAt?: string
+	state?: TorrentServerState
+	totalBytes?: number
 }
 
 export type PreloadState = 'completed' | 'failed' | 'running'
@@ -89,6 +121,10 @@ export interface PlayableSource {
 	url: string
 }
 
+export interface ServerAccessOptions {
+	allowServer?: boolean
+}
+
 export class ApiError extends Error {
 	readonly code: string
 	readonly status: number
@@ -103,6 +139,15 @@ export class ApiError extends Error {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const isTorrentServerState = (
+	value: string | undefined
+): value is TorrentServerState =>
+	value === 'completed' ||
+	value === 'downloading' ||
+	value === 'failed' ||
+	value === 'fetching_metadata' ||
+	value === 'idle'
 
 const normalizeInfoHash = (infoHash: string): string =>
 	infoHash.trim().toLowerCase()
@@ -267,6 +312,83 @@ const readDate = (value: unknown): Date => {
 	return date
 }
 
+const availableTorrentStatusFields = (
+	value: Record<string, unknown>,
+	state: TorrentServerState | undefined
+): Partial<AvailableTorrent> => {
+	const fields: Partial<AvailableTorrent> = {}
+	const downloadedBytes = readNumber(value, 'downloadedBytes')
+	const downloadSpeed = readNumber(value, 'downloadSpeed')
+	const error = readString(value, 'error')
+	const finishedAt = readString(value, 'finishedAt')
+	const numPeers = readNumber(value, 'numPeers')
+	const progress = readNumber(value, 'progress')
+	const startedAt = readString(value, 'startedAt')
+	const totalBytes = readNumber(value, 'totalBytes')
+	if (downloadedBytes !== undefined) {
+		fields.downloadedBytes = downloadedBytes
+	}
+	if (downloadSpeed !== undefined) {
+		fields.downloadSpeed = downloadSpeed
+	}
+	if (error) {
+		fields.error = error
+	}
+	if (finishedAt) {
+		fields.finishedAt = finishedAt
+	}
+	if (typeof value.metadataReady === 'boolean') {
+		fields.metadataReady = value.metadataReady
+	}
+	if (numPeers !== undefined) {
+		fields.numPeers = numPeers
+	}
+	if (progress !== undefined) {
+		fields.progress = progress
+	}
+	if (startedAt) {
+		fields.startedAt = startedAt
+	}
+	if (state) {
+		fields.state = state
+	}
+	if (totalBytes !== undefined) {
+		fields.totalBytes = totalBytes
+	}
+	return fields
+}
+
+const normalizeAvailableTorrent = (value: unknown): AvailableTorrent => {
+	if (!isRecord(value)) {
+		throw new ApiError(502, 'invalid_response', 'Torrent summary is invalid')
+	}
+	const infoHash =
+		readString(value, 'infoHash') ?? readString(value, 'info_hash')
+	const name = readString(value, 'name')
+	if (!(infoHash && name)) {
+		throw new ApiError(502, 'invalid_response', 'Torrent summary is incomplete')
+	}
+	const stateValue = readString(value, 'state')
+	if (stateValue !== undefined && !isTorrentServerState(stateValue)) {
+		throw new ApiError(
+			502,
+			'invalid_response',
+			'Torrent summary status is invalid'
+		)
+	}
+	return {
+		cachedBytes:
+			readNumber(value, 'cachedBytes') ??
+			readNumber(value, 'cached_bytes') ??
+			0,
+		firstSeen: readDate(value.firstSeen ?? value.first_seen),
+		infoHash: normalizeInfoHash(infoHash),
+		lastSeen: readDate(value.lastSeen ?? value.last_seen),
+		name,
+		...availableTorrentStatusFields(value, stateValue),
+	}
+}
+
 const directFileUrl = (infoHash: string, fileId: string): string =>
 	`${API_ROOT}/${encodeURIComponent(normalizeInfoHash(infoHash))}/files/${encodeURIComponent(fileId)}`
 
@@ -299,12 +421,9 @@ export class TorrentApiClient {
 
 	async getTorrentInfo(infoHash: string): Promise<TorrentInfoDto> {
 		const normalizedHash = normalizeInfoHash(infoHash)
-		const stored = await this.repository.getTorrent(normalizedHash)
+		const stored = await this.getStoredTorrentInfo(normalizedHash)
 		if (stored) {
-			return await this.withOfflineState(
-				normalizeTorrentInfo(stored.info, normalizedHash),
-				stored.state
-			)
+			return stored
 		}
 
 		const response = await this.fetcher(
@@ -318,9 +437,47 @@ export class TorrentApiClient {
 		return await this.withOfflineState(details)
 	}
 
+	async getStoredTorrentInfo(infoHash: string): Promise<TorrentInfoDto | null> {
+		const normalizedHash = normalizeInfoHash(infoHash)
+		const stored = await this.repository.getTorrent(normalizedHash)
+		if (!stored) {
+			return null
+		}
+		return await this.withOfflineState(
+			normalizeTorrentInfo(stored.info, normalizedHash),
+			stored.state
+		)
+	}
+
+	async getTorrentStatus(
+		infoHash: string,
+		signal?: AbortSignal
+	): Promise<TorrentServerStatus | null> {
+		const response = await this.fetcher(
+			`${API_ROOT}/${encodeURIComponent(normalizeInfoHash(infoHash))}/status`,
+			{ signal }
+		)
+		if (response.status === 404) {
+			const error = await responseError(response)
+			if (error.code === 'torrent_not_found') {
+				return null
+			}
+			throw new ApiError(
+				502,
+				'torrent_status_unavailable',
+				'This TPlayer server needs to be updated or restarted before it can report background downloads.'
+			)
+		}
+		if (!response.ok) {
+			throw await responseError(response)
+		}
+		return this.parseTorrentStatus(await response.json())
+	}
+
 	async getPlayableSource(
 		infoHash: string,
-		file: TorrentFileReference
+		file: TorrentFileReference,
+		{ allowServer = true }: ServerAccessOptions = {}
 	): Promise<PlayableSource> {
 		const normalizedHash = normalizeInfoHash(infoHash)
 		const stored = await this.repository.getFileBlob(
@@ -329,6 +486,13 @@ export class TorrentApiClient {
 		)
 		if (stored) {
 			return { kind: 'offline', url: URL.createObjectURL(stored) }
+		}
+		if (!allowServer) {
+			throw new ApiError(
+				403,
+				'server_access_not_authorized',
+				'Authorize this server download before streaming files.'
+			)
 		}
 		return { kind: 'server', url: directFileUrl(normalizedHash, file.id) }
 	}
@@ -384,7 +548,8 @@ export class TorrentApiClient {
 
 	async getFileUrl(
 		infoHash: string,
-		fileOrPath: TorrentFileReference | readonly string[]
+		fileOrPath: TorrentFileReference | readonly string[],
+		{ allowServer = true }: ServerAccessOptions = {}
 	): Promise<string | null> {
 		try {
 			const normalizedHash = normalizeInfoHash(infoHash)
@@ -395,6 +560,9 @@ export class TorrentApiClient {
 			)
 			if (stored) {
 				return URL.createObjectURL(stored)
+			}
+			if (!allowServer) {
+				return null
 			}
 			const file = isPath(fileOrPath)
 				? await this.fileByPath(normalizedHash, fileOrPath)
@@ -407,7 +575,7 @@ export class TorrentApiClient {
 
 	async registerTorrent(source: string): Promise<TorrentRegistration> {
 		const response = await this.fetcher(API_ROOT, {
-			body: JSON.stringify({ torrentId: source.trim() }),
+			body: JSON.stringify({ download: true, torrentId: source.trim() }),
 			headers: {
 				'Content-Type': 'application/json',
 				[APP_SHELL_VERSION_HEADER]: CURRENT_APP_SHELL_VERSION,
@@ -453,35 +621,7 @@ export class TorrentApiClient {
 			if (!Array.isArray(value)) {
 				throw new ApiError(502, 'invalid_response', 'Torrent list is invalid')
 			}
-			return value.map((entry) => {
-				if (!isRecord(entry)) {
-					throw new ApiError(
-						502,
-						'invalid_response',
-						'Torrent summary is invalid'
-					)
-				}
-				const infoHash =
-					readString(entry, 'infoHash') ?? readString(entry, 'info_hash')
-				const name = readString(entry, 'name')
-				if (!(infoHash && name)) {
-					throw new ApiError(
-						502,
-						'invalid_response',
-						'Torrent summary is incomplete'
-					)
-				}
-				return {
-					cachedBytes:
-						readNumber(entry, 'cachedBytes') ??
-						readNumber(entry, 'cached_bytes') ??
-						0,
-					firstSeen: readDate(entry.firstSeen ?? entry.first_seen),
-					infoHash: normalizeInfoHash(infoHash),
-					lastSeen: readDate(entry.lastSeen ?? entry.last_seen),
-					name,
-				}
-			})
+			return value.map(normalizeAvailableTorrent)
 		} catch {
 			return []
 		}
@@ -497,15 +637,14 @@ export class TorrentApiClient {
 	}
 
 	async deleteAvailableTorrent(infoHash: string): Promise<boolean> {
-		try {
-			const response = await this.fetcher(
-				`${API_ROOT}/${encodeURIComponent(normalizeInfoHash(infoHash))}`,
-				{ method: 'DELETE' }
-			)
-			return response.ok
-		} catch {
-			return false
+		const response = await this.fetcher(
+			`${API_ROOT}/${encodeURIComponent(normalizeInfoHash(infoHash))}`,
+			{ method: 'DELETE' }
+		)
+		if (!response.ok) {
+			throw await responseError(response)
 		}
+		return true
 	}
 
 	async preloadTorrent(infoHash: string): Promise<PreloadState> {
@@ -589,6 +728,50 @@ export class TorrentApiClient {
 		}
 	}
 
+	private parseTorrentStatus(value: unknown): TorrentServerStatus {
+		if (!isRecord(value)) {
+			throw new ApiError(502, 'invalid_response', 'Torrent status is invalid')
+		}
+		const infoHash = readString(value, 'infoHash')
+		const name = readString(value, 'name')
+		const state = readString(value, 'state')
+		const { metadataReady } = value
+		if (
+			!(
+				infoHash &&
+				name &&
+				isTorrentServerState(state) &&
+				typeof metadataReady === 'boolean'
+			)
+		) {
+			throw new ApiError(
+				502,
+				'invalid_response',
+				'Torrent status is incomplete'
+			)
+		}
+		return {
+			downloadedBytes: readNumber(value, 'downloadedBytes') ?? 0,
+			downloadSpeed: readNumber(value, 'downloadSpeed') ?? 0,
+			infoHash: normalizeInfoHash(infoHash),
+			metadataReady,
+			name,
+			numPeers: readNumber(value, 'numPeers') ?? 0,
+			progress: readNumber(value, 'progress') ?? 0,
+			state,
+			totalBytes: readNumber(value, 'totalBytes') ?? 0,
+			...(readString(value, 'error')
+				? { error: readString(value, 'error') }
+				: {}),
+			...(readString(value, 'finishedAt')
+				? { finishedAt: readString(value, 'finishedAt') }
+				: {}),
+			...(readString(value, 'startedAt')
+				? { startedAt: readString(value, 'startedAt') }
+				: {}),
+		}
+	}
+
 	private async withOfflineState(
 		info: TorrentInfoDto,
 		state?: PlaybackState
@@ -621,10 +804,22 @@ export const torrentApi = new TorrentApiClient()
 export const getTorrentInfo = (infoHash: string): Promise<TorrentInfoDto> =>
 	torrentApi.getTorrentInfo(infoHash)
 
+export const getStoredTorrentInfo = (
+	infoHash: string
+): Promise<TorrentInfoDto | null> => torrentApi.getStoredTorrentInfo(infoHash)
+
+export const getTorrentStatus = (
+	infoHash: string,
+	signal?: AbortSignal
+): Promise<TorrentServerStatus | null> =>
+	torrentApi.getTorrentStatus(infoHash, signal)
+
 export const getPlayableSource = (
 	infoHash: string,
-	file: TorrentFileReference
-): Promise<PlayableSource> => torrentApi.getPlayableSource(infoHash, file)
+	file: TorrentFileReference,
+	options?: ServerAccessOptions
+): Promise<PlayableSource> =>
+	torrentApi.getPlayableSource(infoHash, file, options)
 
 export const cacheFileForOffline = (
 	infoHash: string,
@@ -648,8 +843,10 @@ export const cancelOfflineDownloads = (
 
 export const getFileUrl = (
 	infoHash: string,
-	fileOrPath: TorrentFileReference | readonly string[]
-): Promise<string | null> => torrentApi.getFileUrl(infoHash, fileOrPath)
+	fileOrPath: TorrentFileReference | readonly string[],
+	options?: ServerAccessOptions
+): Promise<string | null> =>
+	torrentApi.getFileUrl(infoHash, fileOrPath, options)
 
 export const registerTorrent = (source: string): Promise<TorrentRegistration> =>
 	torrentApi.registerTorrent(source)

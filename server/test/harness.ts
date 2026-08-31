@@ -332,9 +332,9 @@ export class PrivateSwarmHarness {
 		await rm(this.root, { force: true, recursive: true })
 	}
 
-	async register(): Promise<void> {
+	async register(download = false): Promise<void> {
 		const response = await this.app.request('/api/torrents', {
-			body: JSON.stringify({ torrentId: this.magnetUri }),
+			body: JSON.stringify({ download, torrentId: this.magnetUri }),
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
 		})

@@ -8,6 +8,18 @@ export interface TorrentSummary {
 	name: string
 }
 
+export interface TorrentStatusSummary extends TorrentSummary {
+	cacheCompleted: boolean
+	metadataCompleted: boolean
+	metadataReady: boolean
+}
+
+export interface TorrentRegistrationRecord {
+	backgroundDownload: boolean
+	infoHash: string
+	torrentId: string
+}
+
 export interface StoredTorrentMetadata {
 	completed: boolean
 	fileModtimes: number[] | null
@@ -31,6 +43,12 @@ interface TorrentSummaryRow {
 	name: string
 }
 
+interface TorrentStatusSummaryRow extends TorrentSummaryRow {
+	cache_completed: number
+	metadata_completed: number
+	metadata_ready: number
+}
+
 interface MetadataRow {
 	completed: number
 	file_modtimes: string | null
@@ -44,6 +62,12 @@ interface CacheEntryRow {
 	completed: number
 	info_hash: string
 	last_accessed: string
+}
+
+interface TorrentRegistrationRow {
+	background_download: number
+	info_hash: string
+	torrent_id: string
 }
 
 const nowExpression = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
@@ -105,6 +129,55 @@ export class AppDatabase {
 		}
 	}
 
+	getCacheEntry(infoHash: string): CacheEntry | null {
+		const row = this.connection
+			.query<CacheEntryRow, [string]>(
+				`SELECT info_hash, bytes, completed, last_accessed
+				 FROM torrent_cache
+				 WHERE info_hash = ?`
+			)
+			.get(infoHash)
+		if (!row) {
+			return null
+		}
+		return {
+			bytes: row.bytes,
+			completed: row.completed === 1,
+			infoHash: row.info_hash,
+			lastAccessed: normalizeTimestamp(row.last_accessed),
+		}
+	}
+
+	getTorrentSummary(infoHash: string): TorrentSummary | null {
+		const row = this.connection
+			.query<TorrentSummaryRow, [string]>(
+				`SELECT h.info_hash, h.name, h.first_seen, h.last_seen,
+				        COALESCE(c.bytes, 0) AS cached_bytes
+				 FROM torrent_history AS h
+				 LEFT JOIN torrent_cache AS c ON c.info_hash = h.info_hash
+				 WHERE h.info_hash = ?`
+			)
+			.get(infoHash)
+		return row ? this.toTorrentSummary(row) : null
+	}
+
+	getTorrentStatusSummary(infoHash: string): TorrentStatusSummary | null {
+		const row = this.connection
+			.query<TorrentStatusSummaryRow, [string]>(
+				`SELECT h.info_hash, h.name, h.first_seen, h.last_seen,
+				        COALESCE(c.bytes, 0) AS cached_bytes,
+				        CASE WHEN m.info_hash IS NULL THEN 0 ELSE 1 END AS metadata_ready,
+				        COALESCE(m.completed, 0) AS metadata_completed,
+				        COALESCE(c.completed, 0) AS cache_completed
+				 FROM torrent_history AS h
+				 LEFT JOIN torrent_metadata AS m ON m.info_hash = h.info_hash
+				 LEFT JOIN torrent_cache AS c ON c.info_hash = h.info_hash
+				 WHERE h.info_hash = ?`
+			)
+			.get(infoHash)
+		return row ? this.toTorrentStatusSummary(row) : null
+	}
+
 	healthCheck(): { historyRows: number; integrity: string } {
 		const integrity = this.connection
 			.query<{ quick_check: string }, []>('PRAGMA quick_check')
@@ -146,12 +219,38 @@ export class AppDatabase {
 				 ORDER BY h.last_seen DESC, h.info_hash ASC`
 			)
 			.all()
+			.map((row) => this.toTorrentSummary(row))
+	}
+
+	listTorrentStatusSummaries(): TorrentStatusSummary[] {
+		return this.connection
+			.query<TorrentStatusSummaryRow, []>(
+				`SELECT h.info_hash, h.name, h.first_seen, h.last_seen,
+				        COALESCE(c.bytes, 0) AS cached_bytes,
+				        CASE WHEN m.info_hash IS NULL THEN 0 ELSE 1 END AS metadata_ready,
+				        COALESCE(m.completed, 0) AS metadata_completed,
+				        COALESCE(c.completed, 0) AS cache_completed
+				 FROM torrent_history AS h
+				 LEFT JOIN torrent_metadata AS m ON m.info_hash = h.info_hash
+				 LEFT JOIN torrent_cache AS c ON c.info_hash = h.info_hash
+				 ORDER BY h.last_seen DESC, h.info_hash ASC`
+			)
+			.all()
+			.map((row) => this.toTorrentStatusSummary(row))
+	}
+
+	listTorrentRegistrations(): TorrentRegistrationRecord[] {
+		return this.connection
+			.query<TorrentRegistrationRow, []>(
+				`SELECT info_hash, torrent_id, background_download
+				 FROM torrent_registrations
+				 ORDER BY created_at ASC, info_hash ASC`
+			)
+			.all()
 			.map((row) => ({
-				cachedBytes: row.cached_bytes ?? 0,
-				firstSeen: normalizeTimestamp(row.first_seen),
+				backgroundDownload: row.background_download === 1,
 				infoHash: row.info_hash,
-				lastSeen: normalizeTimestamp(row.last_seen),
-				name: row.name,
+				torrentId: row.torrent_id,
 			}))
 	}
 
@@ -172,6 +271,37 @@ export class AppDatabase {
 		this.connection
 			.query('DELETE FROM torrent_cache WHERE info_hash = ?')
 			.run(infoHash)
+	}
+
+	recordTorrentRegistration(
+		infoHash: string,
+		name: string,
+		torrentId: string,
+		backgroundDownload: boolean
+	): void {
+		const write = this.connection.transaction(() => {
+			this.connection
+				.query(
+					`INSERT INTO torrent_history
+					   (info_hash, name, first_seen, last_seen)
+					 VALUES (?, ?, ${nowExpression}, ${nowExpression})
+					 ON CONFLICT(info_hash) DO UPDATE SET
+					   last_seen = excluded.last_seen`
+				)
+				.run(infoHash, name)
+			this.connection
+				.query(
+					`INSERT INTO torrent_registrations
+					   (info_hash, torrent_id, background_download, created_at, updated_at)
+					 VALUES (?, ?, ?, ${nowExpression}, ${nowExpression})
+					 ON CONFLICT(info_hash) DO UPDATE SET
+					   torrent_id = excluded.torrent_id,
+					   background_download = excluded.background_download,
+					   updated_at = excluded.updated_at`
+				)
+				.run(infoHash, torrentId, backgroundDownload ? 1 : 0)
+		})
+		write.immediate()
 	}
 
 	saveFileModtimes(
@@ -261,6 +391,36 @@ export class AppDatabase {
 				completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
 				last_accessed TEXT NOT NULL DEFAULT (${nowExpression})
 			);
+			CREATE TABLE IF NOT EXISTS torrent_registrations (
+				info_hash TEXT PRIMARY KEY
+					REFERENCES torrent_history(info_hash) ON DELETE CASCADE,
+				torrent_id TEXT NOT NULL,
+				background_download INTEGER NOT NULL DEFAULT 0
+					CHECK (background_download IN (0, 1)),
+				created_at TEXT NOT NULL DEFAULT (${nowExpression}),
+				updated_at TEXT NOT NULL DEFAULT (${nowExpression})
+			);
 		`)
+	}
+
+	private toTorrentSummary(row: TorrentSummaryRow): TorrentSummary {
+		return {
+			cachedBytes: row.cached_bytes ?? 0,
+			firstSeen: normalizeTimestamp(row.first_seen),
+			infoHash: row.info_hash,
+			lastSeen: normalizeTimestamp(row.last_seen),
+			name: row.name,
+		}
+	}
+
+	private toTorrentStatusSummary(
+		row: TorrentStatusSummaryRow
+	): TorrentStatusSummary {
+		return {
+			...this.toTorrentSummary(row),
+			cacheCompleted: row.cache_completed === 1,
+			metadataCompleted: row.metadata_completed === 1,
+			metadataReady: row.metadata_ready === 1,
+		}
 	}
 }

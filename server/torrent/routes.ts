@@ -7,6 +7,7 @@ interface TorrentRoutesDependencies {
 }
 
 interface RegisterTorrentBody {
+	download?: unknown
 	torrentId?: unknown
 }
 
@@ -112,12 +113,29 @@ export const createTorrentRoutes = ({
 				422
 			)
 		}
+		if (body.download !== undefined && typeof body.download !== 'boolean') {
+			return context.json(
+				{
+					error: {
+						code: 'invalid_download_option',
+						message: 'download must be a boolean when provided',
+					},
+				},
+				422
+			)
+		}
 		return context.json(
-			manager.register(body.torrentId),
+			manager.register(body.torrentId, {
+				backgroundDownload: body.download === true,
+			}),
 			202,
 			clearLegacyAppShellCache(context.req.raw)
 		)
 	})
+
+	routes.get('/torrents/:infoHash/status', (context) =>
+		context.json(manager.status(context.req.param('infoHash')))
+	)
 
 	routes.get('/torrents/:infoHash', async (context) => {
 		const details = await manager.details(

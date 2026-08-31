@@ -1,13 +1,136 @@
 import { X } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ContentUseDialog } from '~/components/ContentUseDialog'
 import { CoverImage } from '~/components/CoverImage'
 import { Nav } from '~/components/layout/Nav'
 import { Button } from '~/components/ui/button'
+import { consumeTorrentServerAccessGrant } from '~/search/torrentAccessGrant'
 import { comparePath, isAudioFile, naturalCompare } from '~/utils'
 import { ActionDialog } from './ActionDialog'
+import { ApiError, getTorrentStatus, registerTorrent } from './api'
 import { COMBINED_FILES_PREFIX } from './store'
+import { TorrentServerStatus } from './TorrentServerStatus'
 import { formatBytes } from './utils'
+
+const SERVER_STATUS_POLL_INTERVAL_MS = 1500
+const NETWORK_ERROR_PATTERN =
+	/failed to fetch|networkerror|network request failed/i
+
+const waitForNextServerStatusPoll = (signal) =>
+	new Promise((resolve) => {
+		if (signal.aborted) {
+			resolve(false)
+			return
+		}
+		const handleAbort = () => {
+			clearTimeout(timeoutId)
+			resolve(false)
+		}
+		const timeoutId = setTimeout(() => {
+			signal.removeEventListener('abort', handleAbort)
+			resolve(true)
+		}, SERVER_STATUS_POLL_INTERVAL_MS)
+		signal.addEventListener('abort', handleAbort, { once: true })
+	})
+
+const errorMessage = (error, fallback) => {
+	const message = error instanceof Error ? error.message : ''
+	if (error instanceof TypeError || NETWORK_ERROR_PATTERN.test(message)) {
+		return 'The TPlayer server could not be reached. If this site requires sign-in, sign in again, then check again.'
+	}
+	return message || fallback
+}
+
+const isTerminalServerStatus = (status) =>
+	status.state === 'completed' ||
+	status.state === 'failed' ||
+	status.state === 'idle'
+
+const pollTorrentServerOnce = async ({
+	infoHash,
+	metadataAccessAllowed,
+	loadMetadata,
+	metadataAvailable,
+	onConnectionError,
+	onMetadataError,
+	onNotFound,
+	onStatus,
+	signal,
+}) => {
+	let status
+	try {
+		status = await getTorrentStatus(infoHash, signal)
+	} catch (error) {
+		if (signal.aborted) {
+			return { done: true, metadataAvailable }
+		}
+		onConnectionError(
+			errorMessage(error, 'The server status could not be reached.')
+		)
+		if (
+			error instanceof ApiError &&
+			error.code === 'torrent_status_unavailable'
+		) {
+			return { done: true, metadataAvailable }
+		}
+		const shouldContinue = await waitForNextServerStatusPoll(signal)
+		return { done: !shouldContinue, metadataAvailable }
+	}
+
+	if (signal.aborted) {
+		return { done: true, metadataAvailable }
+	}
+	if (!status) {
+		onNotFound(metadataAvailable)
+		return { done: true, metadataAvailable }
+	}
+
+	onStatus(status)
+	let nextMetadataAvailable = metadataAvailable
+	if (metadataAccessAllowed && status.metadataReady && !nextMetadataAvailable) {
+		nextMetadataAvailable = await loadMetadata()
+		if (signal.aborted) {
+			return { done: true, metadataAvailable: nextMetadataAvailable }
+		}
+		if (!nextMetadataAvailable) {
+			onMetadataError()
+		}
+	}
+	if (isTerminalServerStatus(status)) {
+		return { done: true, metadataAvailable: nextMetadataAvailable }
+	}
+	const shouldContinue = await waitForNextServerStatusPoll(signal)
+	return {
+		done: !shouldContinue,
+		metadataAvailable: nextMetadataAvailable,
+	}
+}
+
+const pollTorrentServer = async ({
+	loadCachedMetadata,
+	signal,
+	...options
+}) => {
+	await loadCachedMetadata()
+	let metadataAvailable = false
+	if (signal.aborted) {
+		return
+	}
+	while (!signal.aborted) {
+		const { done, metadataAvailable: nextMetadataAvailable } =
+			// biome-ignore lint/performance/noAwaitInLoops: Each status poll is sequential, delayed, and abortable.
+			await pollTorrentServerOnce({
+				...options,
+				metadataAvailable,
+				signal,
+			})
+		metadataAvailable = nextMetadataAvailable
+		if (done) {
+			return
+		}
+	}
+}
 
 const offlinePercent = (file) => {
 	if (file.length <= 0) {
@@ -130,12 +253,20 @@ const loadAndSortFiles = async (store, ih) => {
 }
 
 const TorrentFileRow = observer(
-	({ currentFile, file, onDelete, onSelect, playerStore, sourceKind }) => {
+	({
+		currentFile,
+		file,
+		onDelete,
+		onSelect,
+		playerStore,
+		serverAccessAllowed,
+		sourceKind,
+	}) => {
 		const { path } = file
 		const displayPath = stripCombinedPrefix(path).join('/')
 		const isCurrent = comparePath(path, currentFile.path)
 		const currentStyle = isCurrent ? 'bg-gray-200' : ''
-		const playable = isAudioFile(file)
+		const playable = isAudioFile(file) && (serverAccessAllowed || file.cached)
 		const status = getFileStatus({
 			file,
 			isCurrent,
@@ -203,16 +334,148 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 		filesVersion,
 		ih,
 		setCurrentFile,
+		setServerAccessAllowed,
+		serverAccessAllowed,
 		setTorrentInfo,
 		playerStore,
 		torrentInfo,
 	} = store
 	const [allFiles, setAllFiles] = useState([])
+	const [authorizationOpen, setAuthorizationOpen] = useState(false)
+	const [pollRevision, setPollRevision] = useState(0)
+	const [serverError, setServerError] = useState(null)
+	const [serverPhase, setServerPhase] = useState('checking')
+	const [serverStatus, setServerStatus] = useState(null)
+	const [initialServerAccessAllowed] = useState(() =>
+		consumeTorrentServerAccessGrant(ih)
+	)
+	const acceptedRegistrationInfoHashRef = useRef(
+		initialServerAccessAllowed ? ih : null
+	)
+	const authorizedInfoHashRef = useRef(initialServerAccessAllowed ? ih : null)
+	const promptedInfoHashRef = useRef(null)
+	const registrationRequestRef = useRef(0)
+	const statusControllerRef = useRef(null)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pollRevision intentionally restarts the abortable status workflow after a retry or registration.
 	useEffect(() => {
+		const controller = new AbortController()
+		const metadataAccessAllowed = authorizedInfoHashRef.current === ih
+		statusControllerRef.current = controller
 		setAllFiles([])
-		setTorrentInfo(ih).catch(store.handlePlaybackError)
-	}, [ih, setTorrentInfo, store.handlePlaybackError])
+		setAuthorizationOpen(false)
+		setServerError(null)
+		setServerPhase('checking')
+		setServerStatus(null)
+		setServerAccessAllowed(metadataAccessAllowed)
+
+		pollTorrentServer({
+			infoHash: ih,
+			loadCachedMetadata: () =>
+				setTorrentInfo(ih, { cacheOnly: true, resumePlayback: false }),
+			loadMetadata: () => setTorrentInfo(ih),
+			metadataAccessAllowed,
+			onConnectionError: (message) => {
+				setServerError(message)
+				setServerPhase('connection-error')
+			},
+			onMetadataError: () => {
+				setServerError(
+					'The book details are ready on the server, but this page could not load them.'
+				)
+				setServerPhase('metadata-error')
+			},
+			onNotFound: () => {
+				setServerStatus(null)
+				if (acceptedRegistrationInfoHashRef.current === ih) {
+					setServerError(
+						'The server accepted this torrent but could not report the background job afterward. Update or restart the server, then check again.'
+					)
+					setServerPhase('connection-error')
+					return
+				}
+				setServerError(null)
+				setServerPhase('not-found')
+				if (promptedInfoHashRef.current !== ih) {
+					promptedInfoHashRef.current = ih
+					setAuthorizationOpen(true)
+				}
+			},
+			onStatus: (status) => {
+				setServerError(null)
+				setServerPhase('registered')
+				setServerStatus(status)
+				if (!metadataAccessAllowed && promptedInfoHashRef.current !== ih) {
+					promptedInfoHashRef.current = ih
+					setAuthorizationOpen(true)
+				}
+			},
+			signal: controller.signal,
+		}).catch((error) => {
+			if (!controller.signal.aborted) {
+				setServerError(
+					errorMessage(error, 'Unable to prepare this torrent page.')
+				)
+				setServerPhase('connection-error')
+			}
+		})
+		return () => {
+			controller.abort()
+			if (statusControllerRef.current === controller) {
+				statusControllerRef.current = null
+			}
+			registrationRequestRef.current += 1
+		}
+	}, [ih, pollRevision, setServerAccessAllowed, setTorrentInfo])
+
+	const openAuthorization = useCallback(() => {
+		setAuthorizationOpen(true)
+	}, [])
+
+	const closeAuthorization = useCallback(() => {
+		setAuthorizationOpen(false)
+	}, [])
+
+	const authorizeServerAccess = useCallback(async () => {
+		const requestId = registrationRequestRef.current + 1
+		const wasAlreadyAuthorized = authorizedInfoHashRef.current === ih
+		registrationRequestRef.current = requestId
+		statusControllerRef.current?.abort()
+		authorizedInfoHashRef.current = ih
+		setServerAccessAllowed(true)
+		setAuthorizationOpen(false)
+		setServerError(null)
+		const isRegistered = serverPhase === 'registered' && serverStatus
+		const isRetryableRegisteredJob =
+			serverStatus?.state === 'failed' || serverStatus?.state === 'idle'
+		if (isRegistered && !(wasAlreadyAuthorized && isRetryableRegisteredJob)) {
+			acceptedRegistrationInfoHashRef.current = ih
+			setPollRevision((revision) => revision + 1)
+			return
+		}
+		setServerPhase('registering')
+		setServerStatus(null)
+		try {
+			await registerTorrent(ih)
+			if (requestId !== registrationRequestRef.current) {
+				return
+			}
+			acceptedRegistrationInfoHashRef.current = ih
+			setPollRevision((revision) => revision + 1)
+		} catch (error) {
+			if (requestId !== registrationRequestRef.current) {
+				return
+			}
+			setServerError(
+				errorMessage(error, 'The server could not add this torrent.')
+			)
+			setServerPhase('registration-error')
+		}
+	}, [ih, serverPhase, serverStatus, setServerAccessAllowed])
+
+	const retryServerStatus = useCallback(() => {
+		setPollRevision((revision) => revision + 1)
+	}, [])
 
 	const updateFiles = useCallback(async () => {
 		const requestedVersion = filesVersion
@@ -245,15 +508,18 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 		},
 		[setCurrentFile, store.handlePlaybackError]
 	)
+	const hasTorrentInfo = Boolean(torrentInfo.name || torrentInfo.files.length)
+	const displayName = torrentInfo.name || serverStatus?.name || 'Torrent'
 
 	return (
 		<div className='flex h-full flex-col'>
 			<Nav>
-				<div className='flex-1'>
-					<div className='mt-2.5 font-bold text-lg'>{torrentInfo.name}</div>
+				<div className='min-w-0 flex-1'>
+					<div className='mt-2.5 truncate font-bold text-lg'>{displayName}</div>
 				</div>
-				{showCover ? (
+				{showCover && hasTorrentInfo ? (
 					<CoverImage
+						allowServer={serverAccessAllowed}
 						className='h-28 w-28'
 						files={allFiles}
 						ih={ih}
@@ -266,21 +532,41 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 			</Nav>
 			<div className='mt-2.5 flex-1 touch-pan-y overflow-auto'>
 				<div>
-					{allFiles.map((file) => (
-						<TorrentFileRow
-							currentFile={currentFile}
-							file={file}
-							key={file.path.join('/')}
-							onDelete={handleDelete}
-							onSelect={handleClick}
-							playerStore={playerStore}
-							sourceKind={currentSourceKind}
-						/>
-					))}
-					<StorageStatus allFiles={allFiles} store={store} />
-					<CleanBookDataButtons allFiles={allFiles} store={store} />
+					<TorrentServerStatus
+						compact={hasTorrentInfo}
+						error={serverError}
+						onAuthorize={openAuthorization}
+						onRetry={retryServerStatus}
+						phase={serverPhase}
+						serverAccessAllowed={serverAccessAllowed}
+						status={serverStatus}
+					/>
+					{hasTorrentInfo ? (
+						<>
+							{allFiles.map((file) => (
+								<TorrentFileRow
+									currentFile={currentFile}
+									file={file}
+									key={file.path.join('/')}
+									onDelete={handleDelete}
+									onSelect={handleClick}
+									playerStore={playerStore}
+									serverAccessAllowed={serverAccessAllowed}
+									sourceKind={currentSourceKind}
+								/>
+							))}
+							<StorageStatus allFiles={allFiles} store={store} />
+							<CleanBookDataButtons allFiles={allFiles} store={store} />
+						</>
+					) : null}
 				</div>
 			</div>
+			<ContentUseDialog
+				action='open-direct'
+				isOpen={authorizationOpen}
+				onCancel={closeAuthorization}
+				onConfirm={authorizeServerAccess}
+			/>
 		</div>
 	)
 })

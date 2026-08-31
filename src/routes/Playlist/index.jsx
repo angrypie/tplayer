@@ -33,7 +33,7 @@ function App({ params: { ih } }) {
 				<Nav onToggleCover={handleToggleCover} showCover={showCover} />
 			</div>
 			<div style={{ height: `calc(${window.innerHeight}px - 10rem - 2.5rem)` }}>
-				<TorrentInfo showCover={showCover} store={bookStore} />
+				<TorrentInfo key={ih} showCover={showCover} store={bookStore} />
 			</div>
 			<div className='h-40'>
 				<File store={bookStore} />

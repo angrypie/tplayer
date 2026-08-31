@@ -5,6 +5,7 @@ import { selectCoverCandidates } from '~/utils'
 const DEFAULT_NORMALIZE_PATH = (pathParts) => pathParts
 
 export const CoverImage = ({
+	allowServer = true,
 	ih,
 	files = [],
 	name = '',
@@ -42,7 +43,7 @@ export const CoverImage = ({
 				setIsCoverLoading(false)
 				return
 			}
-			const url = await getFileUrl(ih, candidate.path)
+			const url = await getFileUrl(ih, candidate.path, { allowServer })
 			if (!isActive) {
 				return
 			}
@@ -57,7 +58,7 @@ export const CoverImage = ({
 		return () => {
 			isActive = false
 		}
-	}, [ih, coverCandidates, coverIndex])
+	}, [allowServer, ih, coverCandidates, coverIndex])
 
 	React.useEffect(
 		() => () => {

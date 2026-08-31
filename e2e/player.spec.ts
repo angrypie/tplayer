@@ -312,6 +312,23 @@ const confirmAction = async (
 	}
 }
 
+const authorizeDirectTorrentAccess = async (page: Page): Promise<void> => {
+	const dialog = page.getByRole('dialog')
+	await expect(dialog).toContainText('Open an unverified peer-to-peer source?')
+	await dialog
+		.getByRole('checkbox', {
+			name: AUTHORIZATION_CHECKBOX_PATTERN,
+		})
+		.check()
+	await dialog
+		.getByRole('button', {
+			exact: true,
+			name: 'I am authorized — continue',
+		})
+		.click()
+	await expect(dialog).toHaveCount(0)
+}
+
 test.afterAll(async ({ request }) => {
 	const response = await request.post('/__e2e/cleanup')
 	expect(response.status()).toBe(204)
@@ -384,6 +401,7 @@ test('a full browser quota keeps real range playback online without starting an 
 	)
 
 	await page.goto(`/playlist/${fixture.infoHash}`)
+	await authorizeDirectTorrentAccess(page)
 	await expect(page.getByText(fixture.name, { exact: true })).toBeVisible()
 	const playbackRange = page.waitForResponse(
 		(response) =>
@@ -1253,6 +1271,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			.toBeGreaterThan(0)
 		const clearingPage = await context.newPage()
 		await clearingPage.goto(`/playlist/${fixture.infoHash}`)
+		await authorizeDirectTorrentAccess(clearingPage)
 		await expect(
 			clearingPage.getByText(fixture.name, { exact: true })
 		).toBeVisible()
@@ -1376,6 +1395,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			await route.abort('failed')
 		})
 		await page.reload()
+		await authorizeDirectTorrentAccess(page)
 		await expect(page.getByText(fixture.name, { exact: true })).toBeVisible()
 		await expect(
 			page.getByText('available offline', { exact: true })
@@ -1433,6 +1453,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			})
 		})
 		await clearingPage.goto(`/playlist/${fixture.infoHash}`)
+		await authorizeDirectTorrentAccess(clearingPage)
 		await expect(
 			clearingPage.getByText('available offline', { exact: true })
 		).toHaveCount(fixture.files.length)
@@ -1590,6 +1611,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 	await test.step('clean removes offline bytes but keeps the book, then remove clears the local library', async () => {
 		await page.getByText(fixture.name, { exact: true }).first().click()
 		await expect(page).toHaveURL(new RegExp(`/playlist/${fixture.infoHash}$`))
+		await authorizeDirectTorrentAccess(page)
 		const metricsBeforeClean = await readJson<TransferMetrics>(
 			await page.request.get('/__e2e/metrics')
 		)

@@ -11,6 +11,7 @@ import {
 	loadSearchPreferences,
 	saveSearchPreferences,
 } from '~/search/preferences'
+import { grantTorrentServerAccess } from '~/search/torrentAccessGrant'
 import type {
 	AudiobookSearchResult,
 	SearchProviderReport,
@@ -157,6 +158,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 				if (requestId !== directRequestId.current) {
 					return
 				}
+				grantTorrentServerAccess(registration.infoHash)
 				setLocation(`/playlist/${registration.infoHash}`)
 			} catch (value) {
 				if (requestId === directRequestId.current) {
@@ -257,6 +259,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 				) {
 					return
 				}
+				grantTorrentServerAccess(registration.infoHash)
 				setLocation(`/playlist/${registration.infoHash}`)
 			} catch (value) {
 				if (

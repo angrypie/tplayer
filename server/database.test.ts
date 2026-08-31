@@ -139,6 +139,70 @@ describe('AppDatabase integration', () => {
 	)
 
 	test(
+		'persists pending background registrations before metadata and cascades their deletion',
+		async () => {
+			const root = await createTestRoot()
+			const databasePath = join(root, 'history.sqlite')
+			let database: AppDatabase | null = new AppDatabase(databasePath)
+			try {
+				const infoHash = historyHash(88)
+				const torrentId = `magnet:?xt=urn:btih:${infoHash}&dn=Pending%20book`
+				database.recordTorrentRegistration(
+					infoHash,
+					'Pending book',
+					torrentId,
+					true
+				)
+				const pending = database.getTorrentSummary(infoHash)
+				expect(pending?.cachedBytes).toBe(0)
+				expect(pending?.name).toBe('Pending book')
+				expect(Number.isNaN(new Date(pending?.firstSeen ?? '').getTime())).toBe(
+					false
+				)
+				expect(database.listTorrentRegistrations()).toEqual([
+					{
+						backgroundDownload: true,
+						infoHash,
+						torrentId,
+					},
+				])
+
+				database.upsertTorrent(
+					infoHash,
+					'Book title from metadata',
+					Uint8Array.from([1, 2, 3, 4]),
+					torrentId
+				)
+				database.recordTorrentRegistration(
+					infoHash,
+					'Pending placeholder must not win',
+					torrentId,
+					false
+				)
+				expect(database.getTorrentSummary(infoHash)?.name).toBe(
+					'Book title from metadata'
+				)
+
+				database.close()
+				database = new AppDatabase(databasePath)
+				expect(database.listTorrentRegistrations()).toEqual([
+					{
+						backgroundDownload: false,
+						infoHash,
+						torrentId,
+					},
+				])
+				expect(database.deleteTorrent(infoHash)).toBe(true)
+				expect(database.listTorrentRegistrations()).toEqual([])
+			} finally {
+				database?.close()
+				await rm(root, { force: true, recursive: true })
+			}
+		},
+		DATABASE_TEST_TIMEOUT_MS
+	)
+
+	test(
 		'indexes and sorts ten thousand real history rows within a generous performance budget',
 		async () => {
 			const root = await createTestRoot()
@@ -168,14 +232,25 @@ describe('AppDatabase integration', () => {
 				const listStartedAt = performance.now()
 				const rows = database.listTorrents()
 				const listDurationMs = performance.now() - listStartedAt
+				const statusListStartedAt = performance.now()
+				const statusRows = database.listTorrentStatusSummaries()
+				const statusListDurationMs = performance.now() - statusListStartedAt
 				const rssDeltaBytes = Math.max(0, process.memoryUsage().rss - rssBefore)
 				const insertsPerSecond = HISTORY_ROWS / (insertDurationMs / 1000)
 
 				expect(rows).toHaveLength(HISTORY_ROWS)
+				expect(statusRows).toHaveLength(HISTORY_ROWS)
 				expect(rows[0]?.infoHash).toBe(historyHash(HISTORY_ROWS))
 				expect(rows.at(-1)?.infoHash).toBe(historyHash(1))
+				expect(statusRows[0]).toMatchObject({
+					cacheCompleted: false,
+					infoHash: historyHash(HISTORY_ROWS),
+					metadataCompleted: false,
+					metadataReady: false,
+				})
 				expect(insertDurationMs).toBeLessThan(5000)
 				expect(listDurationMs).toBeLessThan(2000)
+				expect(statusListDurationMs).toBeLessThan(2000)
 				expect(insertsPerSecond).toBeGreaterThan(1000)
 				expect(rssDeltaBytes).toBeLessThan(256 * MIB)
 				reportBenchmark('sqlite-history-10000', {
@@ -184,6 +259,7 @@ describe('AppDatabase integration', () => {
 					listMilliseconds: Number(listDurationMs.toFixed(2)),
 					rows: HISTORY_ROWS,
 					rssDeltaMiB: Number((rssDeltaBytes / MIB).toFixed(2)),
+					statusListMilliseconds: Number(statusListDurationMs.toFixed(2)),
 				})
 			} finally {
 				database.close()

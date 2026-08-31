@@ -150,7 +150,10 @@ export const createSearchRoutes = ({
 			{ signal: context.req.raw.signal }
 		)
 		assertSearchRequestActive(context.req.raw.signal)
-		return context.json(manager.register(reference), 202)
+		return context.json(
+			manager.register(reference, { backgroundDownload: true }),
+			202
+		)
 	})
 
 	return routes

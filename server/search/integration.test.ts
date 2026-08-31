@@ -171,7 +171,15 @@ describe('audiobook provider integration', () => {
 				})
 				expect(resolveResponse.status).toBe(202)
 				expect(await resolveResponse.json()).toMatchObject({
+					backgroundDownload: true,
 					infoHash: torrentHarness.infoHash,
+				})
+				expect(
+					torrentHarness.database.listTorrentRegistrations()
+				).toContainEqual({
+					backgroundDownload: true,
+					infoHash: torrentHarness.infoHash,
+					torrentId: expect.any(String),
 				})
 
 				const archiveResult = allSearch.results.find(
