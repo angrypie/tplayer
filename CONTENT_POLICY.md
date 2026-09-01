@@ -46,10 +46,13 @@ item's rights status.
   default. Its inclusion is an integration example, not an endorsement of its
   listings or a representation that any result is lawful to access.
 
-Enabling an unverified tracker requires a versioned acknowledgement. Opening a
-tracker result or a direct magnet link or info hash requires a separate
-confirmation each time. Cancelling that confirmation starts no resolution or
-torrent registration request.
+Enabling an unverified tracker or first opening a direct magnet link, info hash,
+or unverified tracker result requires a versioned acknowledgement. TPlayer
+remembers the current acknowledgement in that browser. Afterward, each explicit
+Open, Start, or Retry action authorizes only the selected resolution or torrent
+registration request without another checkbox. Cancelling the first-use
+acknowledgement starts no resolution or torrent registration request. A changed
+policy version requires acknowledgement again.
 
 ## Project position
 

@@ -4,6 +4,7 @@ import {
 	enabledTrackerProviderIds,
 	hasCurrentContentPolicyAcknowledgement,
 	loadSearchPreferences,
+	rememberCurrentContentPolicyAcknowledgement,
 	SEARCH_PREFERENCES_KEY,
 	saveSearchPreferences,
 } from './preferences'
@@ -119,6 +120,23 @@ describe('search provider preferences', () => {
 		expect(enabledTrackerProviderIds(loaded, providers)).toEqual([
 			'audiobook-bay',
 		])
+	})
+
+	test('remembers the current acknowledgement without losing provider choices', () => {
+		const storage = new MemoryStorage()
+		storage.setItem(
+			SEARCH_PREFERENCES_KEY,
+			JSON.stringify({
+				contentPolicyAcknowledgedVersion: CONTENT_USE_POLICY_VERSION - 1,
+				enabledOptionalProviderIds: ['audiobook-bay'],
+			})
+		)
+
+		expect(rememberCurrentContentPolicyAcknowledgement(storage)).toBe(true)
+		expect(loadSearchPreferences(storage)).toEqual({
+			contentPolicyAcknowledgedVersion: CONTENT_USE_POLICY_VERSION,
+			enabledOptionalProviderIds: ['audiobook-bay'],
+		})
 	})
 
 	test('never persists enabled trackers without the current acknowledgement', () => {

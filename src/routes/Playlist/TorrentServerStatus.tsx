@@ -1,4 +1,5 @@
 import {
+	ChevronDown,
 	CircleCheck,
 	CircleX,
 	CloudDownload,
@@ -8,7 +9,6 @@ import {
 	ShieldAlert,
 } from 'lucide-react'
 import { Button } from '~/components/ui/button'
-import { cn } from '~/lib/utils'
 import type { TorrentServerStatus as TorrentServerStatusDto } from './api'
 import { formatBytes } from './utils'
 
@@ -22,9 +22,8 @@ export type TorrentServerPhase =
 	| 'registered'
 
 interface TorrentServerStatusProps {
-	compact?: boolean
 	error?: string | null
-	onAuthorize: () => void
+	onAction: () => Promise<void> | void
 	onRetry: () => void
 	phase: TorrentServerPhase
 	serverAccessAllowed: boolean
@@ -55,7 +54,7 @@ const statusCopy = (
 	if (phase === 'not-found') {
 		return {
 			description:
-				'Nothing was started from this page. Confirm that you are authorized before adding this peer-to-peer source to the server.',
+				'This source has not been added. Start it only if you are authorized to download and share it.',
 			title: 'This torrent is not on the server',
 		}
 	}
@@ -108,7 +107,7 @@ const statusCopy = (
 		return {
 			description:
 				'The server finished downloading this torrent and can keep serving its files.',
-			title: 'Server download complete',
+			title: 'Downloaded on server',
 		}
 	}
 	if (status.state === 'downloading') {
@@ -127,7 +126,7 @@ const statusCopy = (
 	}
 	return {
 		description:
-			'This torrent is registered, but no background download is running. Confirm authorization to start one.',
+			'This torrent is registered, but no background download is running.',
 		title: 'Not downloading on the server',
 	}
 }
@@ -137,7 +136,7 @@ const StatusIcon = ({
 	status,
 }: Pick<TorrentServerStatusProps, 'phase' | 'status'>) => {
 	if (phase === 'not-found') {
-		return <ShieldAlert aria-hidden='true' className='h-6 w-6 text-amber-600' />
+		return <ShieldAlert aria-hidden='true' className='h-5 w-5 text-amber-600' />
 	}
 	if (
 		phase === 'connection-error' ||
@@ -145,23 +144,23 @@ const StatusIcon = ({
 		phase === 'registration-error' ||
 		status?.state === 'failed'
 	) {
-		return <CircleX aria-hidden='true' className='h-6 w-6 text-destructive' />
+		return <CircleX aria-hidden='true' className='h-5 w-5 text-destructive' />
 	}
 	if (status?.state === 'completed') {
 		return (
-			<CircleCheck aria-hidden='true' className='h-6 w-6 text-emerald-600' />
+			<CircleCheck aria-hidden='true' className='h-5 w-5 text-emerald-600' />
 		)
 	}
 	if (status?.state === 'downloading') {
-		return <CloudDownload aria-hidden='true' className='h-6 w-6 text-primary' />
+		return <CloudDownload aria-hidden='true' className='h-5 w-5 text-primary' />
 	}
 	if (status?.state === 'idle') {
-		return <CloudOff aria-hidden='true' className='h-6 w-6 text-amber-600' />
+		return <CloudOff aria-hidden='true' className='h-5 w-5 text-amber-600' />
 	}
 	return (
 		<LoaderCircle
 			aria-hidden='true'
-			className='h-6 w-6 animate-spin text-primary motion-reduce:animate-none'
+			className='h-5 w-5 animate-spin text-primary motion-reduce:animate-none'
 		/>
 	)
 }
@@ -170,15 +169,7 @@ const TransferDetails = ({ status }: { status: TorrentServerStatusDto }) => {
 	const progress = percentage(status)
 	const hasByteProgress = status.downloadedBytes > 0 || status.totalBytes > 0
 	return (
-		<div className='space-y-2'>
-			{status.totalBytes > 0 ? (
-				<progress
-					aria-label='Server download progress'
-					className='h-2 w-full accent-primary'
-					max={100}
-					value={progress}
-				/>
-			) : null}
+		<div>
 			<div className='flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-sm'>
 				{hasByteProgress ? (
 					<span>
@@ -187,7 +178,7 @@ const TransferDetails = ({ status }: { status: TorrentServerStatusDto }) => {
 							: formatBytes(status.downloadedBytes)}
 					</span>
 				) : null}
-				{status.downloadSpeed > 0 ? (
+				{status.state === 'downloading' && status.downloadSpeed > 0 ? (
 					<span>{formatBytes(status.downloadSpeed)}/s</span>
 				) : null}
 				<span>
@@ -198,7 +189,7 @@ const TransferDetails = ({ status }: { status: TorrentServerStatusDto }) => {
 	)
 }
 
-const canAuthorizeServer = ({
+const canRunServerAction = ({
 	phase,
 	serverAccessAllowed,
 	status,
@@ -219,7 +210,7 @@ const canAuthorizeServer = ({
 	)
 }
 
-const authorizationButtonLabel = ({
+const serverActionLabel = ({
 	phase,
 	serverAccessAllowed,
 	status,
@@ -228,35 +219,55 @@ const authorizationButtonLabel = ({
 	'phase' | 'serverAccessAllowed' | 'status'
 >): string => {
 	if (phase === 'registered' && !serverAccessAllowed) {
-		return 'Authorize book access'
+		return 'Open book'
 	}
 	if (status?.state === 'failed' || phase === 'registration-error') {
-		return 'Authorize retry'
+		return 'Retry server download'
 	}
-	return 'Authorize server download'
+	return 'Start server download'
+}
+
+const isBusyStatus = (
+	phase: TorrentServerPhase,
+	status: TorrentServerStatusDto | null
+): boolean =>
+	phase === 'checking' ||
+	phase === 'registering' ||
+	status?.state === 'downloading' ||
+	status?.state === 'fetching_metadata'
+
+const CompactProgress = ({
+	status,
+}: {
+	status: TorrentServerStatusDto | null
+}) => {
+	const value = status && status.totalBytes > 0 ? percentage(status) : undefined
+	return (
+		<progress
+			aria-label='Server download progress'
+			className='block h-1 w-full accent-primary'
+			max={100}
+			value={value}
+		/>
+	)
 }
 
 export const TorrentServerStatus = ({
-	compact = false,
 	error,
-	onAuthorize,
+	onAction,
 	onRetry,
 	phase,
 	serverAccessAllowed,
 	status,
 }: TorrentServerStatusProps) => {
 	const copy = statusCopy(phase, status, error)
-	const isBusy =
-		phase === 'checking' ||
-		phase === 'registering' ||
-		status?.state === 'downloading' ||
-		status?.state === 'fetching_metadata'
-	const canAuthorize = canAuthorizeServer({
+	const isBusy = isBusyStatus(phase, status)
+	const canRunAction = canRunServerAction({
 		phase,
 		serverAccessAllowed,
 		status,
 	})
-	const authorizeLabel = authorizationButtonLabel({
+	const actionLabel = serverActionLabel({
 		phase,
 		serverAccessAllowed,
 		status,
@@ -266,25 +277,46 @@ export const TorrentServerStatus = ({
 	return (
 		<section
 			aria-busy={isBusy}
-			className={cn(
-				'mx-2 rounded-lg border border-border bg-card shadow-sm',
-				compact ? 'mb-3 p-3' : 'mx-auto my-6 max-w-xl p-5'
-			)}
+			className='mx-2 mb-2'
 			data-server-state={status?.state ?? phase}
 		>
-			<div className='flex items-start gap-3'>
-				<StatusIcon phase={phase} status={status} />
-				<div className='min-w-0 flex-1 space-y-3'>
-					<div aria-atomic='true' aria-live='polite' className='space-y-1'>
-						<h2 className='font-semibold text-foreground'>{copy.title}</h2>
-						<p className='text-muted-foreground text-sm'>{copy.description}</p>
+			<details className='group'>
+				<summary className='cursor-pointer list-none rounded-md px-2 py-2 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden'>
+					<div className='flex items-center gap-2.5'>
+						<StatusIcon phase={phase} status={status} />
+						<div
+							aria-atomic='true'
+							aria-live='polite'
+							className='min-w-0 flex-1'
+						>
+							<h2 className='truncate font-medium text-foreground text-sm'>
+								{copy.title}
+							</h2>
+						</div>
+						{status?.state === 'downloading' && status.totalBytes > 0 ? (
+							<span className='text-muted-foreground text-xs tabular-nums'>
+								{Math.floor(percentage(status))}%
+							</span>
+						) : null}
+						<ChevronDown
+							aria-hidden='true'
+							className='h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180'
+						/>
 					</div>
+					{isBusy ? (
+						<div className='mt-2 overflow-hidden rounded-full'>
+							<CompactProgress status={status} />
+						</div>
+					) : null}
+				</summary>
+				<div className='ml-7 space-y-3 rounded-md bg-muted/40 px-3 py-3'>
+					<p className='text-muted-foreground text-sm'>{copy.description}</p>
 					{status ? <TransferDetails status={status} /> : null}
-					{canAuthorize || canRetry ? (
+					{canRunAction || canRetry ? (
 						<div className='flex flex-wrap gap-2'>
-							{canAuthorize ? (
-								<Button onClick={onAuthorize} size='sm' type='button'>
-									{authorizeLabel}
+							{canRunAction ? (
+								<Button onClick={onAction} size='sm' type='button'>
+									{actionLabel}
 								</Button>
 							) : null}
 							{canRetry ? (
@@ -301,7 +333,7 @@ export const TorrentServerStatus = ({
 						</div>
 					) : null}
 				</div>
-			</div>
+			</details>
 		</section>
 	)
 }

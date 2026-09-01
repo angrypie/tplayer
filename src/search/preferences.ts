@@ -120,4 +120,17 @@ export const saveSearchPreferences = (
 	}
 }
 
+export const rememberCurrentContentPolicyAcknowledgement = (
+	storage: Storage | null = browserStorage()
+): boolean => {
+	const preferences = loadSearchPreferences(storage)
+	return saveSearchPreferences(
+		{
+			...preferences,
+			contentPolicyAcknowledgedVersion: CONTENT_USE_POLICY_VERSION,
+		},
+		storage
+	)
+}
+
 export { SEARCH_PREFERENCES_KEY }

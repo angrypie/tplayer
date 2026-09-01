@@ -1,10 +1,7 @@
-export const CONTENT_USE_POLICY_VERSION = 1
+export const CONTENT_USE_POLICY_VERSION = 2
 
 export const CONTENT_USE_ACKNOWLEDGEMENT =
-	'I understand and will use tracker results only for material I am legally authorized to download and share.'
-
-export const CONTENT_USE_CONFIRMATION =
-	'I confirm that I am legally authorized to download and share this content.'
+	'I understand that I must be legally authorized to download and share any peer-to-peer content I choose to open.'
 
 export const CONTENT_USE_COPYRIGHT_WARNING =
 	'Never download or share a copyrighted audiobook through a torrent unless the rightsholder or an applicable license explicitly authorizes that download and peer-to-peer sharing.'

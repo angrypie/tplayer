@@ -8,7 +8,9 @@ import {
 } from '~/search/api'
 import {
 	enabledTrackerProviderIds,
+	hasCurrentContentPolicyAcknowledgement,
 	loadSearchPreferences,
+	rememberCurrentContentPolicyAcknowledgement,
 	saveSearchPreferences,
 } from '~/search/preferences'
 import { grantTorrentServerAccess } from '~/search/torrentAccessGrant'
@@ -40,6 +42,7 @@ export interface AudiobookSearchController {
 	contentUseConfirmation: ContentUseConfirmation | null
 	error: string | null
 	hasSearched: boolean
+	isDirectTorrentQuery: boolean
 	isOpeningDirect: boolean
 	openingResultKey: string | null
 	openResult: (result: AudiobookSearchResult) => Promise<void>
@@ -173,6 +176,18 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 		[setLocation]
 	)
 
+	const submitDirectTorrent = useCallback(
+		async (source: string): Promise<void> => {
+			setError(null)
+			if (!hasCurrentContentPolicyAcknowledgement(loadSearchPreferences())) {
+				setPendingContentUse({ kind: 'direct', source })
+				return
+			}
+			await openDirectTorrent(source)
+		},
+		[openDirectTorrent]
+	)
+
 	const submit = useCallback(async (): Promise<void> => {
 		const source = query.trim()
 		if (!source) {
@@ -183,8 +198,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 			return
 		}
 		if (isTorrentReference(source)) {
-			setError(null)
-			setPendingContentUse({ kind: 'direct', source })
+			await submitDirectTorrent(source)
 			return
 		}
 
@@ -235,7 +249,13 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 			setError(errorMessage(value, 'Unable to search for audiobooks'))
 			setStatus('error')
 		}
-	}, [isOpeningDirect, openingResultKey, pendingContentUse, query])
+	}, [
+		isOpeningDirect,
+		openingResultKey,
+		pendingContentUse,
+		query,
+		submitDirectTorrent,
+	])
 
 	const resolveResult = useCallback(
 		async (result: AudiobookSearchResult): Promise<void> => {
@@ -286,6 +306,10 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 			}
 			if (trackerProviderIds.includes(result.providerId)) {
 				setError(null)
+				if (hasCurrentContentPolicyAcknowledgement(loadSearchPreferences())) {
+					await resolveResult(result)
+					return
+				}
 				setPendingContentUse({ kind: 'tracker', result: { ...result } })
 				return
 			}
@@ -312,6 +336,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 		confirmationInFlight.current = true
 		setPendingContentUse(null)
 		try {
+			rememberCurrentContentPolicyAcknowledgement()
 			if (confirmedAction.kind === 'direct') {
 				await openDirectTorrent(confirmedAction.source)
 			} else {
@@ -343,6 +368,7 @@ export const useAudiobookSearch = (): AudiobookSearchController => {
 		contentUseConfirmation,
 		error,
 		hasSearched: activeQuery !== null,
+		isDirectTorrentQuery: isTorrentReference(query.trim()),
 		isOpeningDirect,
 		openingResultKey,
 		openResult,

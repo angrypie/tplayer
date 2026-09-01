@@ -46,6 +46,9 @@ export const Search: React.FC<SearchProps> = ({ controller }) => {
 		if (controller.status === 'searching') {
 			return 'Searching…'
 		}
+		if (controller.isDirectTorrentQuery) {
+			return 'Open torrent'
+		}
 		return 'search'
 	})()
 

@@ -59,9 +59,10 @@ real media bytes through Hono. It does not depend on public trackers or peers.
 
 Text entered on the home screen is searched across public-domain and
 rights-labelled audiobook catalogues before the local library is shown. Direct
-magnet links and 40-character or base32 info hashes remain supported, but they
-require an explicit lawful-use confirmation before any registration request is
-sent.
+magnet links and 40-character or base32 info hashes remain supported. The first
+peer-to-peer action requires an explicit lawful-use acknowledgement before any
+registration request is sent; the current acknowledgement is then remembered
+in that browser.
 
 - [LibriVox](https://librivox.org) and audiobook records from the
   [Internet Archive](https://archive.org) are always enabled. Search results are
@@ -74,8 +75,8 @@ sent.
   stored in the current browser only after a versioned content-policy
   acknowledgement. AudioBookBay is independently operated; its inclusion is an
   integration example, not an endorsement or a claim that its listings are
-  authorized. Every tracker result requires a separate confirmation before it
-  is resolved.
+  authorized. After acknowledgement, each explicit **Open audiobook** action
+  applies only to that selected result without another checkbox.
 - Provider failures are isolated, so one unavailable catalogue does not hide
   usable results from another source. Public-domain and rights-labelled results
   are de-duplicated and always displayed before unverified tracker results.

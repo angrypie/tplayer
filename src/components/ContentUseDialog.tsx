@@ -2,10 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ContentUseNotice } from '~/components/ContentUseNotice'
 import { Button } from '~/components/ui/button'
-import {
-	CONTENT_USE_ACKNOWLEDGEMENT,
-	CONTENT_USE_CONFIRMATION,
-} from '~/search/contentPolicy'
+import { CONTENT_USE_ACKNOWLEDGEMENT } from '~/search/contentPolicy'
 
 const FOCUSABLE_SELECTOR =
 	'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -33,22 +30,22 @@ const dialogCopy = (
 	if (action === 'enable-tracker') {
 		return {
 			confirmLabel: 'I understand — enable',
-			description: `${sourceLabel ?? 'This source'} is independently operated and its results are not rights-verified by TPlayer.`,
-			title: 'Enable an unverified third-party source?',
+			description: `${sourceLabel ?? 'This source'} is independently operated and its results are not rights-verified by TPlayer. This acknowledgement is remembered in this browser until the policy changes.`,
+			title: 'Before enabling an unverified source',
 		}
 	}
 	if (action === 'open-tracker') {
 		return {
-			confirmLabel: 'I am authorized — continue',
-			description: `You are about to open ${sourceLabel ?? 'a result'} from an unverified third-party tracker.`,
-			title: 'Open an unverified tracker result?',
+			confirmLabel: 'I understand — continue',
+			description: `Review this once before opening ${sourceLabel ?? 'a result'} from an unverified third-party tracker. TPlayer will remember it in this browser until the policy changes.`,
+			title: 'Before opening peer-to-peer content',
 		}
 	}
 	return {
-		confirmLabel: 'I am authorized — continue',
+		confirmLabel: 'I understand — continue',
 		description:
-			'A magnet link or info hash does not prove that its files are authorized.',
-		title: 'Open an unverified peer-to-peer source?',
+			'A magnet link or info hash does not prove that its files are authorized. Review this once; TPlayer will remember it in this browser until the policy changes.',
+		title: 'Before opening peer-to-peer content',
 	}
 }
 
@@ -67,10 +64,6 @@ export const ContentUseDialog = ({
 	const cancelButtonRef = useRef<HTMLButtonElement>(null)
 	const dialogRef = useRef<HTMLDivElement>(null)
 	const copy = dialogCopy(action, sourceLabel)
-	const acknowledgementLabel =
-		action === 'enable-tracker'
-			? CONTENT_USE_ACKNOWLEDGEMENT
-			: CONTENT_USE_CONFIRMATION
 
 	const handleCancel = useCallback((): void => {
 		setAcknowledged(false)
@@ -205,7 +198,7 @@ export const ContentUseDialog = ({
 							type='checkbox'
 						/>
 						<label className='font-medium text-sm' htmlFor={checkboxId}>
-							{acknowledgementLabel}
+							{CONTENT_USE_ACKNOWLEDGEMENT}
 						</label>
 					</div>
 					<div className='flex justify-end gap-2'>

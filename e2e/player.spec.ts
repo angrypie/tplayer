@@ -3,7 +3,8 @@ import { CONTENT_USE_POLICY_VERSION } from '../src/search/contentPolicy'
 import { SEARCH_PREFERENCES_KEY } from '../src/search/preferences'
 
 const BACK_TO_LIBRARY_PATTERN = /Back to library/
-const AUTHORIZATION_CHECKBOX_PATTERN = /I confirm that I am legally authorized/
+const AUTHORIZATION_CHECKBOX_PATTERN =
+	/I understand that I must be legally authorized/
 const AUTHORIZED_UPLOAD_PATTERN = /authorized.+upload pieces/s
 const AUDIO_FILE_PATH_PATTERN = /\.(?:m4a|m4b|mp3|ogg|opus|wav)$/i
 const BACKWARD_JUMP_LABEL_PATTERN = /^Back \d+ seconds$/
@@ -22,8 +23,7 @@ const OPEN_TRACKER_RESULT_PATTERN = /^Open .+ from AudioBookBay$/
 const FORWARD_JUMP_LABEL_PATTERN = /^Forward \d+ seconds$/
 const PLAYBACK_START_SAMPLES_KEY = '__tplayerPlaybackStartSamples'
 const TIME_LABEL_PATTERN = /^\d+:\d{2}$/
-const TRACKER_ACKNOWLEDGEMENT_PATTERN =
-	/I understand and will use tracker results only/
+const TRACKER_ACKNOWLEDGEMENT_PATTERN = AUTHORIZATION_CHECKBOX_PATTERN
 
 interface FixtureDescriptor {
 	files: Array<{
@@ -314,7 +314,7 @@ const confirmAction = async (
 
 const authorizeDirectTorrentAccess = async (page: Page): Promise<void> => {
 	const dialog = page.getByRole('dialog')
-	await expect(dialog).toContainText('Open an unverified peer-to-peer source?')
+	await expect(dialog).toContainText('Before opening peer-to-peer content')
 	await dialog
 		.getByRole('checkbox', {
 			name: AUTHORIZATION_CHECKBOX_PATTERN,
@@ -323,7 +323,7 @@ const authorizeDirectTorrentAccess = async (page: Page): Promise<void> => {
 	await dialog
 		.getByRole('button', {
 			exact: true,
-			name: 'I am authorized — continue',
+			name: 'I understand — continue',
 		})
 		.click()
 	await expect(dialog).toHaveCount(0)
@@ -666,7 +666,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		await trackerCheckbox.click()
 		let policyDialog = page.getByRole('dialog')
 		await expect(policyDialog).toContainText(
-			'Enable an unverified third-party source?'
+			'Before enabling an unverified source'
 		)
 		await expect(policyDialog).toContainText(
 			'Never download or share a copyrighted audiobook through a torrent unless'
@@ -812,59 +812,15 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		await trackerResults
 			.getByRole('button', { name: OPEN_TRACKER_RESULT_PATTERN })
 			.click()
-		let actionDialog = page.getByRole('dialog')
-		await expect(actionDialog).toContainText(
-			'Open an unverified tracker result?'
-		)
-		await expect(actionDialog).toContainText(
-			'Owning a physical or digital copy, or having a subscription, does not by itself authorize'
-		)
-		await expect(
-			actionDialog.getByRole('button', {
-				exact: true,
-				name: 'I am authorized — continue',
-			})
-		).toBeDisabled()
-		await actionDialog
-			.getByRole('button', { exact: true, name: 'Cancel' })
-			.click()
-		await expect(actionDialog).toHaveCount(0)
-		let registrationMetrics = await readJson<RegistrationMetrics>(
-			await page.request.get('/__e2e/registration-metrics')
-		)
-		searchMetrics = await readJson<SearchUpstreamMetrics>(
-			await page.request.get('/__e2e/search-metrics')
-		)
-		expect(registrationMetrics.searchResolveRequests).toBe(
-			trackerMetricsBeforeOpen.searchResolveRequests
-		)
-		expect(searchMetrics.audiobookBayDetailRequests).toBe(
-			trackerDetailsBeforeOpen
-		)
-
-		await trackerResults
-			.getByRole('button', { name: OPEN_TRACKER_RESULT_PATTERN })
-			.click()
-		actionDialog = page.getByRole('dialog')
-		await actionDialog
-			.getByRole('checkbox', {
-				name: AUTHORIZATION_CHECKBOX_PATTERN,
-			})
-			.check()
-		await actionDialog
-			.getByRole('button', {
-				exact: true,
-				name: 'I am authorized — continue',
-			})
-			.click()
+		await expect(page.getByRole('dialog')).toHaveCount(0)
 		await expect(page).toHaveURL(new RegExp(`/playlist/${fixture.infoHash}$`), {
 			timeout: 30_000,
 		})
+		const registrationMetrics = await readJson<RegistrationMetrics>(
+			await page.request.get('/__e2e/registration-metrics')
+		)
 		searchMetrics = await readJson<SearchUpstreamMetrics>(
 			await page.request.get('/__e2e/search-metrics')
-		)
-		registrationMetrics = await readJson<RegistrationMetrics>(
-			await page.request.get('/__e2e/registration-metrics')
 		)
 		expect(searchMetrics.audiobookBayDetailRequests).toBe(
 			trackerDetailsBeforeOpen + 1
@@ -896,7 +852,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 		expect(searchMetrics.archiveMetadataRequests).toBe(1)
 	})
 
-	await test.step('direct magnets send no registration request until authorization is confirmed', async () => {
+	await test.step('the remembered acknowledgement opens a direct magnet without another prompt', async () => {
 		await page.goto('/')
 		const registrationMetricsBefore = await readJson<RegistrationMetrics>(
 			await page.request.get('/__e2e/registration-metrics')
@@ -905,40 +861,14 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			'audiobook title or authorized magnet link'
 		)
 		await directSearchbox.fill(fixture.magnetUri)
-		await page.getByRole('button', { exact: true, name: 'search' }).click()
-		let actionDialog = page.getByRole('dialog')
-		await expect(actionDialog).toContainText(
-			'Open an unverified peer-to-peer source?'
-		)
-		await actionDialog
-			.getByRole('button', { exact: true, name: 'Cancel' })
+		await page
+			.getByRole('button', { exact: true, name: 'Open torrent' })
 			.click()
-		await expect(actionDialog).toHaveCount(0)
-		await expect(directSearchbox).toHaveValue(fixture.magnetUri)
-		let registrationMetrics = await readJson<RegistrationMetrics>(
-			await page.request.get('/__e2e/registration-metrics')
-		)
-		expect(registrationMetrics.torrentRegistrationRequests).toBe(
-			registrationMetricsBefore.torrentRegistrationRequests
-		)
-
-		await page.getByRole('button', { exact: true, name: 'search' }).click()
-		actionDialog = page.getByRole('dialog')
-		await actionDialog
-			.getByRole('checkbox', {
-				name: AUTHORIZATION_CHECKBOX_PATTERN,
-			})
-			.check()
-		await actionDialog
-			.getByRole('button', {
-				exact: true,
-				name: 'I am authorized — continue',
-			})
-			.click()
+		await expect(page.getByRole('dialog')).toHaveCount(0)
 		await expect(page).toHaveURL(new RegExp(`/playlist/${fixture.infoHash}$`), {
 			timeout: 30_000,
 		})
-		registrationMetrics = await readJson<RegistrationMetrics>(
+		const registrationMetrics = await readJson<RegistrationMetrics>(
 			await page.request.get('/__e2e/registration-metrics')
 		)
 		expect(registrationMetrics.torrentRegistrationRequests).toBe(
@@ -1271,7 +1201,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			.toBeGreaterThan(0)
 		const clearingPage = await context.newPage()
 		await clearingPage.goto(`/playlist/${fixture.infoHash}`)
-		await authorizeDirectTorrentAccess(clearingPage)
+		await expect(clearingPage.getByRole('dialog')).toHaveCount(0)
 		await expect(
 			clearingPage.getByText(fixture.name, { exact: true })
 		).toBeVisible()
@@ -1395,7 +1325,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			await route.abort('failed')
 		})
 		await page.reload()
-		await authorizeDirectTorrentAccess(page)
+		await expect(page.getByRole('dialog')).toHaveCount(0)
 		await expect(page.getByText(fixture.name, { exact: true })).toBeVisible()
 		await expect(
 			page.getByText('available offline', { exact: true })
@@ -1453,7 +1383,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 			})
 		})
 		await clearingPage.goto(`/playlist/${fixture.infoHash}`)
-		await authorizeDirectTorrentAccess(clearingPage)
+		await expect(clearingPage.getByRole('dialog')).toHaveCount(0)
 		await expect(
 			clearingPage.getByText('available offline', { exact: true })
 		).toHaveCount(fixture.files.length)
@@ -1611,7 +1541,7 @@ test('a real private torrent plays, persists offline, and follows full lifecycle
 	await test.step('clean removes offline bytes but keeps the book, then remove clears the local library', async () => {
 		await page.getByText(fixture.name, { exact: true }).first().click()
 		await expect(page).toHaveURL(new RegExp(`/playlist/${fixture.infoHash}$`))
-		await authorizeDirectTorrentAccess(page)
+		await expect(page.getByRole('dialog')).toHaveCount(0)
 		const metricsBeforeClean = await readJson<TransferMetrics>(
 			await page.request.get('/__e2e/metrics')
 		)

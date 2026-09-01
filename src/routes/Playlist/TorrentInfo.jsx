@@ -5,6 +5,11 @@ import { ContentUseDialog } from '~/components/ContentUseDialog'
 import { CoverImage } from '~/components/CoverImage'
 import { Nav } from '~/components/layout/Nav'
 import { Button } from '~/components/ui/button'
+import {
+	hasCurrentContentPolicyAcknowledgement,
+	loadSearchPreferences,
+	rememberCurrentContentPolicyAcknowledgement,
+} from '~/search/preferences'
 import { consumeTorrentServerAccessGrant } from '~/search/torrentAccessGrant'
 import { comparePath, isAudioFile, naturalCompare } from '~/utils'
 import { ActionDialog } from './ActionDialog'
@@ -82,7 +87,7 @@ const pollTorrentServerOnce = async ({
 		return { done: true, metadataAvailable }
 	}
 	if (!status) {
-		onNotFound(metadataAvailable)
+		await onNotFound(metadataAvailable)
 		return { done: true, metadataAvailable }
 	}
 
@@ -346,16 +351,47 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 	const [serverError, setServerError] = useState(null)
 	const [serverPhase, setServerPhase] = useState('checking')
 	const [serverStatus, setServerStatus] = useState(null)
-	const [initialServerAccessAllowed] = useState(() =>
-		consumeTorrentServerAccessGrant(ih)
-	)
+	const [initialServerAccess] = useState(() => {
+		const grantedByNavigation = consumeTorrentServerAccessGrant(ih)
+		return {
+			allowed:
+				grantedByNavigation ||
+				hasCurrentContentPolicyAcknowledgement(loadSearchPreferences()),
+			registrationAccepted: grantedByNavigation,
+		}
+	})
 	const acceptedRegistrationInfoHashRef = useRef(
-		initialServerAccessAllowed ? ih : null
+		initialServerAccess.registrationAccepted ? ih : null
 	)
-	const authorizedInfoHashRef = useRef(initialServerAccessAllowed ? ih : null)
+	const authorizedInfoHashRef = useRef(initialServerAccess.allowed ? ih : null)
 	const promptedInfoHashRef = useRef(null)
 	const registrationRequestRef = useRef(0)
 	const statusControllerRef = useRef(null)
+
+	const startServerRegistration = useCallback(async () => {
+		const requestId = registrationRequestRef.current + 1
+		registrationRequestRef.current = requestId
+		statusControllerRef.current?.abort()
+		setServerError(null)
+		setServerPhase('registering')
+		setServerStatus(null)
+		try {
+			await registerTorrent(ih)
+			if (requestId !== registrationRequestRef.current) {
+				return
+			}
+			acceptedRegistrationInfoHashRef.current = ih
+			setPollRevision((revision) => revision + 1)
+		} catch (error) {
+			if (requestId !== registrationRequestRef.current) {
+				return
+			}
+			setServerError(
+				errorMessage(error, 'The server could not add this torrent.')
+			)
+			setServerPhase('registration-error')
+		}
+	}, [ih])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: pollRevision intentionally restarts the abortable status workflow after a retry or registration.
 	useEffect(() => {
@@ -385,7 +421,7 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 				)
 				setServerPhase('metadata-error')
 			},
-			onNotFound: () => {
+			onNotFound: async () => {
 				setServerStatus(null)
 				if (acceptedRegistrationInfoHashRef.current === ih) {
 					setServerError(
@@ -396,6 +432,10 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 				}
 				setServerError(null)
 				setServerPhase('not-found')
+				if (metadataAccessAllowed) {
+					await startServerRegistration()
+					return
+				}
 				if (promptedInfoHashRef.current !== ih) {
 					promptedInfoHashRef.current = ih
 					setAuthorizationOpen(true)
@@ -426,52 +466,64 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 			}
 			registrationRequestRef.current += 1
 		}
-	}, [ih, pollRevision, setServerAccessAllowed, setTorrentInfo])
-
-	const openAuthorization = useCallback(() => {
-		setAuthorizationOpen(true)
-	}, [])
+	}, [
+		ih,
+		pollRevision,
+		setServerAccessAllowed,
+		setTorrentInfo,
+		startServerRegistration,
+	])
 
 	const closeAuthorization = useCallback(() => {
 		setAuthorizationOpen(false)
 	}, [])
 
-	const authorizeServerAccess = useCallback(async () => {
-		const requestId = registrationRequestRef.current + 1
+	const confirmFirstUse = useCallback(async () => {
 		const wasAlreadyAuthorized = authorizedInfoHashRef.current === ih
-		registrationRequestRef.current = requestId
-		statusControllerRef.current?.abort()
+		rememberCurrentContentPolicyAcknowledgement()
 		authorizedInfoHashRef.current = ih
 		setServerAccessAllowed(true)
 		setAuthorizationOpen(false)
 		setServerError(null)
 		const isRegistered = serverPhase === 'registered' && serverStatus
-		const isRetryableRegisteredJob =
-			serverStatus?.state === 'failed' || serverStatus?.state === 'idle'
-		if (isRegistered && !(wasAlreadyAuthorized && isRetryableRegisteredJob)) {
+		if (isRegistered && !wasAlreadyAuthorized) {
 			acceptedRegistrationInfoHashRef.current = ih
 			setPollRevision((revision) => revision + 1)
 			return
 		}
-		setServerPhase('registering')
-		setServerStatus(null)
-		try {
-			await registerTorrent(ih)
-			if (requestId !== registrationRequestRef.current) {
-				return
-			}
+		await startServerRegistration()
+	}, [
+		ih,
+		serverPhase,
+		serverStatus,
+		setServerAccessAllowed,
+		startServerRegistration,
+	])
+
+	const handleServerAction = useCallback(async () => {
+		const acknowledgementIsCurrent =
+			authorizedInfoHashRef.current === ih ||
+			hasCurrentContentPolicyAcknowledgement(loadSearchPreferences())
+		if (!acknowledgementIsCurrent) {
+			setAuthorizationOpen(true)
+			return
+		}
+
+		authorizedInfoHashRef.current = ih
+		setServerAccessAllowed(true)
+		if (serverPhase === 'registered' && !serverAccessAllowed) {
 			acceptedRegistrationInfoHashRef.current = ih
 			setPollRevision((revision) => revision + 1)
-		} catch (error) {
-			if (requestId !== registrationRequestRef.current) {
-				return
-			}
-			setServerError(
-				errorMessage(error, 'The server could not add this torrent.')
-			)
-			setServerPhase('registration-error')
+			return
 		}
-	}, [ih, serverPhase, serverStatus, setServerAccessAllowed])
+		await startServerRegistration()
+	}, [
+		ih,
+		serverAccessAllowed,
+		serverPhase,
+		setServerAccessAllowed,
+		startServerRegistration,
+	])
 
 	const retryServerStatus = useCallback(() => {
 		setPollRevision((revision) => revision + 1)
@@ -533,9 +585,8 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 			<div className='mt-2.5 flex-1 touch-pan-y overflow-auto'>
 				<div>
 					<TorrentServerStatus
-						compact={hasTorrentInfo}
 						error={serverError}
-						onAuthorize={openAuthorization}
+						onAction={handleServerAction}
 						onRetry={retryServerStatus}
 						phase={serverPhase}
 						serverAccessAllowed={serverAccessAllowed}
@@ -565,7 +616,7 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 				action='open-direct'
 				isOpen={authorizationOpen}
 				onCancel={closeAuthorization}
-				onConfirm={authorizeServerAccess}
+				onConfirm={confirmFirstUse}
 			/>
 		</div>
 	)

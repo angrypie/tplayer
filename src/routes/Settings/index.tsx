@@ -16,6 +16,7 @@ import { getSearchProviders } from '~/search/api'
 import { CONTENT_USE_POLICY_VERSION } from '~/search/contentPolicy'
 import {
 	enabledTrackerProviderIds,
+	hasCurrentContentPolicyAcknowledgement,
 	loadSearchPreferences,
 	type SearchPreferences,
 	saveSearchPreferences,
@@ -163,6 +164,26 @@ const Settings = () => {
 	const handleProviderChange = useCallback(
 		(providerId: string, enabled: boolean): void => {
 			if (enabled) {
+				if (hasCurrentContentPolicyAcknowledgement(preferences)) {
+					const nextPreferences = {
+						...preferences,
+						enabledOptionalProviderIds: [
+							...new Set([
+								...preferences.enabledOptionalProviderIds,
+								providerId,
+							]),
+						].sort(),
+					}
+					if (!saveSearchPreferences(nextPreferences)) {
+						setSaveMessage(null)
+						setError('Unable to save search settings in this browser')
+						return
+					}
+					setPreferences(nextPreferences)
+					setError(null)
+					setSaveMessage('Search settings saved')
+					return
+				}
 				setPendingProviderId(providerId)
 				return
 			}
@@ -327,8 +348,9 @@ const Settings = () => {
 								Optional unverified tracker sources
 							</h3>
 							<p className='text-muted-foreground text-sm'>
-								Enabling a tracker requires a policy acknowledgement. Opening a
-								tracker result still requires confirmation each time.
+								The first peer-to-peer action requires a policy acknowledgement.
+								After that, each Open action applies only to the selected result
+								without another checkbox.
 							</p>
 							{trackerProviders.length > 0 ? (
 								<ul className='space-y-2'>
