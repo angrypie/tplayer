@@ -5,7 +5,7 @@ import { cn } from '~/lib/utils'
 const Input = ({ className, type, ref, ...props }: ComponentProps<'input'>) => (
 	<input
 		className={cn(
-			'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:font-medium file:text-foreground file:text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+			'flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-xs ring-offset-background transition-[border-color,box-shadow] file:border-0 file:bg-transparent file:font-medium file:text-foreground file:text-sm placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
 			className
 		)}
 		ref={ref}

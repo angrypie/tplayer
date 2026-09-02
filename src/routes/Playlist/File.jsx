@@ -1,4 +1,7 @@
+import { X } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
+import { Alert, AlertDescription } from '~/components/ui/alert'
+import { Button } from '~/components/ui/button'
 import { Player } from './Player'
 
 export const File = observer(({ store }) => {
@@ -12,20 +15,24 @@ export const File = observer(({ store }) => {
 		<>
 			<Player store={store} />
 			{notice ? (
-				<div
-					className='fixed right-5 bottom-5 z-[1200] flex max-w-sm items-center gap-3 rounded-lg bg-black/80 px-4 py-3 text-white'
-					role='alert'
+				<Alert
+					className='pointer-events-none fixed right-4 bottom-4 z-[1200] flex max-w-sm items-center gap-3 bg-popover shadow-xl'
+					role='status'
 				>
-					<span className='flex-1'>{notice}</span>
-					<button
+					<AlertDescription className='flex-1 text-popover-foreground'>
+						{notice}
+					</AlertDescription>
+					<Button
 						aria-label='Dismiss message'
-						className='border-0 bg-transparent p-1 text-white'
+						className='pointer-events-auto shrink-0'
 						onClick={handleDismissNotice}
+						size='icon'
 						type='button'
+						variant='ghost'
 					>
-						×
-					</button>
-				</div>
+						<X aria-hidden='true' />
+					</Button>
+				</Alert>
 			) : null}
 		</>
 	)

@@ -1,8 +1,14 @@
+import { BookOpen, CloudDownload } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import React from 'react'
 import { Link } from 'wouter'
 import { CoverImage } from '~/components/CoverImage'
+import { SectionHeading } from '~/components/layout/Page'
+import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
+import { Card } from '~/components/ui/card'
+import { EmptyState } from '~/components/ui/empty-state'
+import { Progress } from '~/components/ui/progress'
 import {
 	deleteAvailableTorrent,
 	getAvailableTorrents,
@@ -74,10 +80,8 @@ const AvailableBookStatus = ({ book, deleting }) => {
 				) : null}
 			</div>
 			{book.state === 'downloading' && (book.totalBytes ?? 0) > 0 ? (
-				<progress
+				<Progress
 					aria-label={`Download progress for ${book.name}`}
-					className='h-1.5 w-full accent-primary'
-					max={100}
 					value={progress}
 				/>
 			) : null}
@@ -89,21 +93,21 @@ export const Library = observer(({ store }) => {
 	const renderBook = ({ info, ih, state }, i) => {
 		const name = info['name.utf-8'] || info.name
 		return (
-			<Link key={i} to={`/playlist/${ih}`}>
-				<div className='my-3 flex cursor-pointer items-center gap-3'>
+			<Link className='block' key={i} to={`/playlist/${ih}`}>
+				<Card className='group flex items-center gap-3 p-3 transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md'>
 					<CoverImage
 						className='h-16 w-16'
 						files={info.files || []}
 						ih={ih}
 						loadingLabel='Loading...'
 						name={name}
-						placeholderClassName='text-[10px] text-[var(--text-secondary)]'
+						placeholderClassName='text-[10px] text-muted-foreground'
 					/>
-					<div className='flex flex-1 items-center justify-between gap-3'>
-						<div className='w-4/5 truncate'>{name}</div>
+					<div className='flex min-w-0 flex-1 items-center justify-between gap-3'>
+						<div className='truncate font-medium'>{name}</div>
 						<BookState state={state} />
 					</div>
-				</div>
+				</Card>
 			</Link>
 		)
 	}
@@ -123,23 +127,36 @@ export const Library = observer(({ store }) => {
 	const library = sorted.slice(recentBooksNumber).concat(rest).map(renderBook)
 
 	return (
-		<div className='mx-3 flex flex-col'>
+		<div className='space-y-8'>
 			{recent.length > 0 && (
-				<>
-					<div className='font-bold text-2xl'>Recent</div>
-					{recent}
-				</>
+				<section className='space-y-3'>
+					<SectionHeading title='Recent' />
+					<div className='space-y-2'>{recent}</div>
+				</section>
 			)}
-			<div className='font-bold text-2xl'>Library</div>
-			{library.length > 0 ? (
-				library
-			) : (
-				<div className='my-3 text-gray-500'>
-					{recent.length > 0
-						? 'No more books in library'
-						: 'No books in library'}
-				</div>
-			)}
+			<section className='space-y-3'>
+				<SectionHeading
+					description='Books saved in this browser appear here.'
+					title='Library'
+				/>
+				{library.length > 0 ? (
+					<div className='space-y-2'>{library}</div>
+				) : (
+					<EmptyState
+						description={
+							recent.length > 0
+								? 'Your other saved books will appear here.'
+								: 'Search for an audiobook or open an authorized magnet link to get started.'
+						}
+						icon={BookOpen}
+						title={
+							recent.length > 0
+								? 'No more books in library'
+								: 'No books in library'
+						}
+					/>
+				)}
+			</section>
 		</div>
 	)
 })
@@ -148,7 +165,7 @@ const BookState = ({ state }) => {
 	if (!state || state.time < 10) {
 		return null
 	}
-	return <div className='text-red-500'>*</div>
+	return <Badge variant='outline'>In progress</Badge>
 }
 
 const partition = (arr, f) =>
@@ -262,41 +279,41 @@ export const AvailableBooks = () => {
 	}
 
 	return (
-		<div className='p-4'>
+		<section className='space-y-3'>
 			{isVisible ? (
 				<>
-					<div className='flex items-center justify-between'>
-						<h2 className='font-bold text-xl'>Available Books</h2>
-						<Button
-							className='underline underline-offset-4 opacity-30 transition-opacity duration-200 hover:opacity-100'
-							onClick={hideBooks}
-							size='sm'
-							variant='link'
-						>
-							Hide books
-						</Button>
-					</div>
-					<div className='mt-4 grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4'>
+					<SectionHeading
+						action={
+							<Button onClick={hideBooks} size='sm' variant='outline'>
+								Hide books
+							</Button>
+						}
+						description='Background downloads and cached books from the TPlayer server.'
+						title='Available Books'
+					/>
+					<div className='grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3'>
 						{books.length === 0 ? (
-							<div className='my-3 text-gray-500'>
-								No books available on server
-							</div>
+							<EmptyState
+								className='col-span-full'
+								icon={CloudDownload}
+								title='No books available on server'
+							/>
 						) : (
 							books.map((book) => {
 								const deleting = deletingInfoHashes.has(book.infoHash)
 								const deleteError = deleteErrors[book.infoHash]
 								return (
-									<div
+									<Card
 										aria-busy={deleting}
-										className='rounded-lg bg-[var(--bg-elevated)] p-4'
+										className='p-4'
 										key={book.infoHash}
 									>
 										<Link href={`/playlist/${book.infoHash}`}>
-											<div className='cursor-pointer transition-transform duration-200 hover:-translate-y-0.5'>
+											<div className='cursor-pointer'>
 												<div className='mb-2 break-words font-medium'>
 													{book.name}
 												</div>
-												<div className='flex justify-between text-[var(--text-secondary)] text-sm'>
+												<div className='flex justify-between text-muted-foreground text-sm'>
 													<span>
 														Last requested: {book.lastSeen.toLocaleDateString()}
 													</span>
@@ -310,34 +327,42 @@ export const AvailableBooks = () => {
 											</p>
 										) : null}
 										<Button
-											className='mt-3 opacity-40 transition-opacity duration-200 hover:opacity-100'
+											className='mt-3 px-0 text-destructive hover:text-destructive'
 											data-book-name={book.name}
 											data-info-hash={book.infoHash}
 											disabled={deleting}
 											onClick={handleDeleteClick}
 											size='sm'
 											type='button'
-											variant='link'
+											variant='ghost'
 										>
 											{deleteButtonLabel(deleting, deleteError)}
 										</Button>
-									</div>
+									</Card>
 								)
 							})
 						)}
 					</div>
 				</>
 			) : (
-				<Button
-					className='mt-2 p-2 underline underline-offset-4 opacity-30 transition-opacity duration-200 hover:opacity-100 disabled:cursor-not-allowed'
-					disabled={isLoading}
-					onClick={showBooks}
-					size='sm'
-					variant='link'
-				>
-					{isLoading ? 'Loading...' : 'Show books available on server'}
-				</Button>
+				<Card className='flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center sm:justify-between'>
+					<div>
+						<h2 className='font-medium'>Server library</h2>
+						<p className='text-muted-foreground text-sm'>
+							See books currently cached or downloading on the server.
+						</p>
+					</div>
+					<Button
+						className='w-full sm:w-auto'
+						disabled={isLoading}
+						onClick={showBooks}
+						size='sm'
+						variant='outline'
+					>
+						{isLoading ? 'Loading...' : 'Show books available on server'}
+					</Button>
+				</Card>
 			)}
-		</div>
+		</section>
 	)
 }

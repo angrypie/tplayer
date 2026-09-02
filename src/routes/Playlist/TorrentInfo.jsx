@@ -3,8 +3,9 @@ import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ContentUseDialog } from '~/components/ContentUseDialog'
 import { CoverImage } from '~/components/CoverImage'
-import { Nav } from '~/components/layout/Nav'
 import { Button } from '~/components/ui/button'
+import { Card } from '~/components/ui/card'
+import { cn } from '~/lib/utils'
 import {
 	hasCurrentContentPolicyAcknowledgement,
 	loadSearchPreferences,
@@ -270,7 +271,7 @@ const TorrentFileRow = observer(
 		const { path } = file
 		const displayPath = stripCombinedPrefix(path).join('/')
 		const isCurrent = comparePath(path, currentFile.path)
-		const currentStyle = isCurrent ? 'bg-gray-200' : ''
+		const currentStyle = isCurrent ? 'bg-accent/80' : ''
 		const playable = isAudioFile(file) && (serverAccessAllowed || file.cached)
 		const status = getFileStatus({
 			file,
@@ -290,7 +291,7 @@ const TorrentFileRow = observer(
 
 		return (
 			<div
-				className={`flex items-center justify-between hover:bg-gray-100 ${currentStyle}`}
+				className={`flex items-center justify-between border-border/70 border-b transition-colors last:border-b-0 hover:bg-muted/70 ${currentStyle}`}
 			>
 				<button
 					aria-busy={
@@ -299,7 +300,7 @@ const TorrentFileRow = observer(
 							: undefined
 					}
 					aria-current={isCurrent ? 'true' : undefined}
-					className='flex min-w-0 grow cursor-pointer items-center justify-between border-0 bg-transparent p-2 text-left disabled:cursor-default disabled:opacity-60'
+					className='flex min-w-0 grow cursor-pointer items-center justify-between gap-3 border-0 bg-transparent px-3 py-2.5 text-left disabled:cursor-default disabled:opacity-60'
 					data-offline-progress={offlinePercent(file)}
 					data-playback-source={isCurrent ? sourceKind : undefined}
 					data-playback-state={status.state}
@@ -310,14 +311,14 @@ const TorrentFileRow = observer(
 					<span className='flex-1 truncate'>{displayPath}</span>
 					<span
 						aria-live={isCurrent ? 'polite' : undefined}
-						className='mr-2 text-gray-500 text-sm'
+						className='shrink-0 text-muted-foreground text-xs'
 					>
 						{status.label}
 					</span>
 				</button>
 				{file.cached ? (
 					<Button
-						className='mr-2 text-red-500 hover:bg-red-50 hover:text-red-700'
+						className='mr-2 text-destructive hover:bg-destructive/10 hover:text-destructive'
 						onClick={handleDelete}
 						size='icon'
 						title='Delete'
@@ -565,25 +566,30 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 
 	return (
 		<div className='flex h-full flex-col'>
-			<Nav>
-				<div className='min-w-0 flex-1'>
-					<div className='mt-2.5 truncate font-bold text-lg'>{displayName}</div>
-				</div>
+			<div className='flex items-center gap-4 px-4 py-4'>
 				{showCover && hasTorrentInfo ? (
 					<CoverImage
 						allowServer={serverAccessAllowed}
-						className='h-28 w-28'
+						className='h-20 w-20 shadow-sm'
 						files={allFiles}
 						ih={ih}
 						loadingLabel='Loading cover...'
 						name={torrentInfo.name}
 						normalizePathParts={stripCombinedPrefix}
-						placeholderClassName='text-xs text-[var(--text-secondary)]'
+						placeholderClassName='text-xs text-muted-foreground'
 					/>
 				) : null}
-			</Nav>
-			<div className='mt-2.5 flex-1 touch-pan-y overflow-auto'>
-				<div>
+				<div className='min-w-0 flex-1'>
+					<p className='text-muted-foreground text-xs uppercase tracking-widest'>
+						Audiobook
+					</p>
+					<h1 className='mt-1 truncate font-semibold text-xl tracking-tight'>
+						{displayName}
+					</h1>
+				</div>
+			</div>
+			<div className='min-h-0 flex-1 touch-pan-y overflow-auto px-2 pb-4'>
+				<div className='space-y-2'>
 					<TorrentServerStatus
 						error={serverError}
 						onAction={handleServerAction}
@@ -594,18 +600,20 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 					/>
 					{hasTorrentInfo ? (
 						<>
-							{allFiles.map((file) => (
-								<TorrentFileRow
-									currentFile={currentFile}
-									file={file}
-									key={file.path.join('/')}
-									onDelete={handleDelete}
-									onSelect={handleClick}
-									playerStore={playerStore}
-									serverAccessAllowed={serverAccessAllowed}
-									sourceKind={currentSourceKind}
-								/>
-							))}
+							<Card className='overflow-hidden'>
+								{allFiles.map((file) => (
+									<TorrentFileRow
+										currentFile={currentFile}
+										file={file}
+										key={file.path.join('/')}
+										onDelete={handleDelete}
+										onSelect={handleClick}
+										playerStore={playerStore}
+										serverAccessAllowed={serverAccessAllowed}
+										sourceKind={currentSourceKind}
+									/>
+								))}
+							</Card>
 							<StorageStatus allFiles={allFiles} store={store} />
 							<CleanBookDataButtons allFiles={allFiles} store={store} />
 						</>
@@ -640,9 +648,9 @@ const StorageStatus = observer(({ allFiles, store }) => {
 	const localBytes = offlineBytes(allFiles)
 	const serverBytes = store.serverCachedBytes
 	return (
-		<div
+		<Card
 			aria-label='Book storage status'
-			className='mx-2 mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-md bg-muted/50 px-3 py-2 text-muted-foreground text-sm'
+			className='grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 px-3 py-2 text-muted-foreground text-sm shadow-none'
 			role='status'
 		>
 			<span>Server cache</span>
@@ -651,77 +659,86 @@ const StorageStatus = observer(({ allFiles, store }) => {
 			</span>
 			<span>Offline on this device</span>
 			<span data-offline-bytes={localBytes}>{formatBytes(localBytes)}</span>
-		</div>
+		</Card>
 	)
 })
 
-export const CleanBookDataButtons = observer(({ store, allFiles }) => {
-	const { cleanBookData, ih, removeBook } = store
-	const [pendingAction, setPendingAction] = useState(null)
-	const cachedPartsLength = offlineBytes(allFiles)
-	const hasOfflineWork = allFiles.some(
-		(file) => file.offlineState === 'saving' || file.offlineState === 'paused'
-	)
+export const CleanBookDataButtons = observer(
+	({ store, allFiles, compact = false }) => {
+		const { cleanBookData, ih, removeBook } = store
+		const [pendingAction, setPendingAction] = useState(null)
+		const cachedPartsLength = offlineBytes(allFiles)
+		const hasOfflineWork = allFiles.some(
+			(file) => file.offlineState === 'saving' || file.offlineState === 'paused'
+		)
 
-	const requestClean = useCallback(() => {
-		setPendingAction('clean')
-	}, [])
+		const requestClean = useCallback(() => {
+			setPendingAction('clean')
+		}, [])
 
-	const requestRemove = useCallback(() => {
-		setPendingAction('remove')
-	}, [])
+		const requestRemove = useCallback(() => {
+			setPendingAction('remove')
+		}, [])
 
-	const cancelAction = useCallback(() => {
-		setPendingAction(null)
-	}, [])
+		const cancelAction = useCallback(() => {
+			setPendingAction(null)
+		}, [])
 
-	const confirmAction = useCallback(async () => {
-		const action = pendingAction
-		setPendingAction(null)
-		if (action === 'clean') {
-			await cleanBookData(ih)
-			return
-		}
-		if (action === 'remove') {
-			const removed = await removeBook(ih)
-			if (removed) {
-				window.history.pushState(null, '', '/')
+		const confirmAction = useCallback(async () => {
+			const action = pendingAction
+			setPendingAction(null)
+			if (action === 'clean') {
+				await cleanBookData(ih)
+				return
 			}
-		}
-	}, [cleanBookData, ih, pendingAction, removeBook])
+			if (action === 'remove') {
+				const removed = await removeBook(ih)
+				if (removed) {
+					window.history.pushState(null, '', '/')
+				}
+			}
+		}, [cleanBookData, ih, pendingAction, removeBook])
 
-	return (
-		<>
-			<div className='flex flex-col'>
-				<button
-					className='flex cursor-pointer justify-center py-2 font-medium text-[#2f37ff] text-sm opacity-50 active:opacity-100 disabled:cursor-not-allowed disabled:opacity-20'
-					disabled={cachedPartsLength === 0 && !hasOfflineWork}
-					onClick={requestClean}
-					type='button'
+		return (
+			<>
+				<Card
+					className={cn(
+						'flex flex-col overflow-hidden p-1 shadow-none',
+						compact && 'border-0'
+					)}
 				>
-					Clear offline data ({formatBytes(cachedPartsLength)})
-				</button>
-				<button
-					className='flex cursor-pointer justify-center py-2 font-medium text-[#2f37ff] text-sm opacity-50 active:opacity-100'
-					onClick={requestRemove}
-					type='button'
-				>
-					Remove Book from Library
-				</button>
-			</div>
-			<ActionDialog
-				description={
-					pendingAction === 'clean'
-						? 'Delete all book files stored offline on this device? The server cache is not affected.'
-						: 'Remove this book from the library?'
-				}
-				isOpen={pendingAction !== null}
-				onCancel={cancelAction}
-				onConfirm={confirmAction}
-				title={
-					pendingAction === 'clean' ? 'Clear offline data?' : 'Remove book?'
-				}
-			/>
-		</>
-	)
-})
+					<Button
+						className='w-full justify-center text-muted-foreground hover:text-foreground'
+						disabled={cachedPartsLength === 0 && !hasOfflineWork}
+						onClick={requestClean}
+						type='button'
+						variant='ghost'
+					>
+						Clear offline data ({formatBytes(cachedPartsLength)})
+					</Button>
+					<Button
+						className='w-full justify-center text-destructive hover:bg-destructive/10 hover:text-destructive'
+						onClick={requestRemove}
+						type='button'
+						variant='ghost'
+					>
+						Remove Book from Library
+					</Button>
+				</Card>
+				<ActionDialog
+					description={
+						pendingAction === 'clean'
+							? 'Delete all book files stored offline on this device? The server cache is not affected.'
+							: 'Remove this book from the library?'
+					}
+					isOpen={pendingAction !== null}
+					onCancel={cancelAction}
+					onConfirm={confirmAction}
+					title={
+						pendingAction === 'clean' ? 'Clear offline data?' : 'Remove book?'
+					}
+				/>
+			</>
+		)
+	}
+)

@@ -276,13 +276,13 @@ const ProgressLine = ({
 				</output>
 			) : null}
 			<div className='pointer-events-none relative flex h-4 w-full items-center'>
-				<div className='absolute h-px w-full bg-foreground/70' />
+				<div className='absolute h-1.5 w-full rounded-full bg-muted' />
 				<div
 					className='absolute h-1.5 w-full origin-left will-change-transform'
 					style={{ transform: `scaleX(${positionPercentage / 100})` }}
 				>
 					<div
-						className={`h-full w-full transition-[background-color,transform] duration-150 ease-out ${isDragging ? 'scale-y-[1.15] bg-[#2f37ff]' : 'bg-foreground'}`}
+						className={`h-full w-full rounded-full bg-primary transition-transform duration-150 ease-out ${isDragging ? 'scale-y-[1.3]' : ''}`}
 					/>
 				</div>
 			</div>

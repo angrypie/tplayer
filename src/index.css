@@ -3,48 +3,58 @@
 
 @layer base {
 	:root {
-		--background: 0 0% 100%;
-		--foreground: 222.2 47.4% 11.2%;
-		--muted: 210 40% 96.1%;
-		--muted-foreground: 215.4 16.3% 46.9%;
+		--background: 220 23% 97%;
+		--foreground: 224 32% 12%;
+		--muted: 220 20% 94%;
+		--muted-foreground: 220 10% 43%;
 		--popover: 0 0% 100%;
-		--popover-foreground: 222.2 47.4% 11.2%;
-		--border: 214.3 31.8% 91.4%;
-		--input: 214.3 31.8% 91.4%;
+		--popover-foreground: 224 32% 12%;
+		--border: 220 18% 87%;
+		--input: 220 18% 82%;
 		--card: 0 0% 100%;
-		--card-foreground: 222.2 47.4% 11.2%;
-		--primary: 222.2 47.4% 11.2%;
-		--primary-foreground: 210 40% 98%;
-		--secondary: 210 40% 96.1%;
-		--secondary-foreground: 222.2 47.4% 11.2%;
-		--accent: 210 40% 96.1%;
-		--accent-foreground: 222.2 47.4% 11.2%;
-		--destructive: 0 100% 50%;
-		--destructive-foreground: 210 40% 98%;
-		--ring: 215 20.2% 65.1%;
-		--radius: 0.5rem;
+		--card-foreground: 224 32% 12%;
+		--primary: 243 72% 56%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 225 25% 92%;
+		--secondary-foreground: 224 32% 16%;
+		--accent: 239 42% 92%;
+		--accent-foreground: 243 50% 31%;
+		--destructive: 0 72% 51%;
+		--destructive-foreground: 0 0% 100%;
+		--warning: 38 92% 42%;
+		--warning-foreground: 29 80% 18%;
+		--success: 158 64% 36%;
+		--success-foreground: 155 70% 14%;
+		--ring: 243 72% 56%;
+		--radius: 0.75rem;
+		color-scheme: light;
 	}
 
 	.dark {
-		--background: 224 71% 4%;
-		--foreground: 213 31% 91%;
-		--muted: 223 47% 11%;
-		--muted-foreground: 215.4 16.3% 56.9%;
-		--accent: 216 34% 17%;
-		--accent-foreground: 210 40% 98%;
-		--popover: 224 71% 4%;
-		--popover-foreground: 215 20.2% 65.1%;
-		--border: 216 34% 17%;
-		--input: 216 34% 17%;
-		--card: 224 71% 4%;
-		--card-foreground: 213 31% 91%;
-		--primary: 210 40% 98%;
-		--primary-foreground: 222.2 47.4% 1.2%;
-		--secondary: 222.2 47.4% 11.2%;
-		--secondary-foreground: 210 40% 98%;
-		--destructive: 0 63% 31%;
-		--destructive-foreground: 210 40% 98%;
-		--ring: 216 34% 17%;
+		--background: 228 28% 8%;
+		--foreground: 220 20% 94%;
+		--muted: 225 19% 15%;
+		--muted-foreground: 220 11% 64%;
+		--accent: 242 27% 21%;
+		--accent-foreground: 235 85% 88%;
+		--popover: 226 25% 11%;
+		--popover-foreground: 220 20% 94%;
+		--border: 225 17% 21%;
+		--input: 225 16% 25%;
+		--card: 226 25% 11%;
+		--card-foreground: 220 20% 94%;
+		--primary: 239 84% 72%;
+		--primary-foreground: 242 52% 16%;
+		--secondary: 225 20% 18%;
+		--secondary-foreground: 220 20% 94%;
+		--destructive: 0 67% 56%;
+		--destructive-foreground: 0 0% 100%;
+		--warning: 43 96% 56%;
+		--warning-foreground: 45 100% 88%;
+		--success: 155 63% 52%;
+		--success-foreground: 150 55% 86%;
+		--ring: 239 84% 72%;
+		color-scheme: dark;
 	}
 }
 
@@ -53,7 +63,16 @@
 		@apply border-border;
 	}
 	body {
-		@apply font-sans antialiased bg-background text-foreground;
+		background-image: radial-gradient(
+			circle at top,
+			hsl(var(--primary) / 0.07),
+			transparent 28rem
+		);
+		@apply bg-background font-sans text-foreground antialiased;
+	}
+
+	::selection {
+		@apply bg-primary/20 text-foreground;
 	}
 }
 
@@ -62,5 +81,33 @@ body {
 	height: 100%;
 	overflow: hidden;
 	overscroll-behavior: none;
-	font-family: system-ui;
+	font-family:
+		Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
+}
+
+#root {
+	height: 100%;
+}
+
+.ui-progress {
+	appearance: none;
+	background: hsl(var(--muted));
+	border: 0;
+}
+
+.ui-progress::-webkit-progress-bar {
+	background: hsl(var(--muted));
+	border-radius: 9999px;
+}
+
+.ui-progress::-webkit-progress-value {
+	background: hsl(var(--primary));
+	border-radius: 9999px;
+	transition: width 200ms ease;
+}
+
+.ui-progress::-moz-progress-bar {
+	background: hsl(var(--primary));
+	border-radius: 9999px;
 }

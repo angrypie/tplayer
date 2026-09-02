@@ -1,8 +1,9 @@
-import { Settings as SettingsIcon } from 'lucide-react'
+import { AudioLines, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link } from 'wouter'
 import { ContentUseDialog } from '~/components/ContentUseDialog'
 import { Nav } from '~/components/layout/Nav'
+import { PageContent, PageShell } from '~/components/layout/Page'
 import { ThemeToggle } from '~/components/theme-toggle'
 import { Button } from '~/components/ui/button'
 import { AvailableBooks, Library } from './library'
@@ -19,7 +20,7 @@ const Home = () => {
 		store.updateLibraryItems()
 	}, [store])
 	return (
-		<div className='flex h-screen flex-col'>
+		<PageShell>
 			<ContentUseDialog
 				action={contentUseConfirmation?.action ?? 'open-direct'}
 				isOpen={contentUseConfirmation !== null}
@@ -27,9 +28,19 @@ const Home = () => {
 				onConfirm={searchController.confirmContentUseConfirmation}
 				sourceLabel={contentUseConfirmation?.sourceLabel}
 			/>
-			<Nav>
-				<div className='min-w-0 flex-1'>
-					<Search controller={searchController} />
+			<Nav className='flex-wrap gap-3'>
+				<div className='mr-auto flex items-center gap-2.5'>
+					<div className='grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm'>
+						<AudioLines aria-hidden='true' className='size-5' />
+					</div>
+					<div>
+						<h1 className='font-semibold leading-none tracking-tight'>
+							TPlayer
+						</h1>
+						<p className='mt-1 text-muted-foreground text-xs'>
+							Your audiobook library
+						</p>
+					</div>
 				</div>
 				<Button
 					aria-label='Search settings'
@@ -42,8 +53,11 @@ const Home = () => {
 					</Link>
 				</Button>
 				<ThemeToggle />
+				<div className='order-last w-full'>
+					<Search controller={searchController} />
+				</div>
 			</Nav>
-			<div className='mt-4 flex-1 overflow-auto'>
+			<PageContent className='space-y-8'>
 				{searchController.hasSearched ? (
 					<SearchResults controller={searchController} />
 				) : (
@@ -52,8 +66,8 @@ const Home = () => {
 						<AvailableBooks />
 					</>
 				)}
-			</div>
-		</div>
+			</PageContent>
+		</PageShell>
 	)
 }
 

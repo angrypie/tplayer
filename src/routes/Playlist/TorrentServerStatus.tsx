@@ -9,6 +9,8 @@ import {
 	ShieldAlert,
 } from 'lucide-react'
 import { Button } from '~/components/ui/button'
+import { Card } from '~/components/ui/card'
+import { Progress } from '~/components/ui/progress'
 import type { TorrentServerStatus as TorrentServerStatusDto } from './api'
 import { formatBytes } from './utils'
 
@@ -243,10 +245,9 @@ const CompactProgress = ({
 }) => {
 	const value = status && status.totalBytes > 0 ? percentage(status) : undefined
 	return (
-		<progress
+		<Progress
 			aria-label='Server download progress'
-			className='block h-1 w-full accent-primary'
-			max={100}
+			className='h-1'
 			value={value}
 		/>
 	)
@@ -275,65 +276,67 @@ export const TorrentServerStatus = ({
 	const canRetry = phase === 'connection-error' || phase === 'metadata-error'
 
 	return (
-		<section
-			aria-busy={isBusy}
-			className='mx-2 mb-2'
-			data-server-state={status?.state ?? phase}
-		>
-			<details className='group'>
-				<summary className='cursor-pointer list-none rounded-md px-2 py-2 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden'>
-					<div className='flex items-center gap-2.5'>
-						<StatusIcon phase={phase} status={status} />
-						<div
-							aria-atomic='true'
-							aria-live='polite'
-							className='min-w-0 flex-1'
-						>
-							<h2 className='truncate font-medium text-foreground text-sm'>
-								{copy.title}
-							</h2>
+		<Card asChild>
+			<section
+				aria-busy={isBusy}
+				className='overflow-hidden shadow-none'
+				data-server-state={status?.state ?? phase}
+			>
+				<details className='group'>
+					<summary className='cursor-pointer list-none px-3 py-3 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden'>
+						<div className='flex items-center gap-2.5'>
+							<StatusIcon phase={phase} status={status} />
+							<div
+								aria-atomic='true'
+								aria-live='polite'
+								className='min-w-0 flex-1'
+							>
+								<h2 className='truncate font-medium text-foreground text-sm'>
+									{copy.title}
+								</h2>
+							</div>
+							{status?.state === 'downloading' && status.totalBytes > 0 ? (
+								<span className='text-muted-foreground text-xs tabular-nums'>
+									{Math.floor(percentage(status))}%
+								</span>
+							) : null}
+							<ChevronDown
+								aria-hidden='true'
+								className='h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180'
+							/>
 						</div>
-						{status?.state === 'downloading' && status.totalBytes > 0 ? (
-							<span className='text-muted-foreground text-xs tabular-nums'>
-								{Math.floor(percentage(status))}%
-							</span>
+						{isBusy ? (
+							<div className='mt-2 overflow-hidden rounded-full'>
+								<CompactProgress status={status} />
+							</div>
 						) : null}
-						<ChevronDown
-							aria-hidden='true'
-							className='h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180'
-						/>
+					</summary>
+					<div className='space-y-3 border-border/70 border-t bg-muted/35 px-4 py-3'>
+						<p className='text-muted-foreground text-sm'>{copy.description}</p>
+						{status ? <TransferDetails status={status} /> : null}
+						{canRunAction || canRetry ? (
+							<div className='flex flex-wrap gap-2'>
+								{canRunAction ? (
+									<Button onClick={onAction} size='sm' type='button'>
+										{actionLabel}
+									</Button>
+								) : null}
+								{canRetry ? (
+									<Button
+										onClick={onRetry}
+										size='sm'
+										type='button'
+										variant='outline'
+									>
+										<RefreshCw aria-hidden='true' />
+										Check again
+									</Button>
+								) : null}
+							</div>
+						) : null}
 					</div>
-					{isBusy ? (
-						<div className='mt-2 overflow-hidden rounded-full'>
-							<CompactProgress status={status} />
-						</div>
-					) : null}
-				</summary>
-				<div className='ml-7 space-y-3 rounded-md bg-muted/40 px-3 py-3'>
-					<p className='text-muted-foreground text-sm'>{copy.description}</p>
-					{status ? <TransferDetails status={status} /> : null}
-					{canRunAction || canRetry ? (
-						<div className='flex flex-wrap gap-2'>
-							{canRunAction ? (
-								<Button onClick={onAction} size='sm' type='button'>
-									{actionLabel}
-								</Button>
-							) : null}
-							{canRetry ? (
-								<Button
-									onClick={onRetry}
-									size='sm'
-									type='button'
-									variant='outline'
-								>
-									<RefreshCw aria-hidden='true' />
-									Check again
-								</Button>
-							) : null}
-						</div>
-					) : null}
-				</div>
-			</details>
-		</section>
+				</details>
+			</section>
+		</Card>
 	)
 }

@@ -1,4 +1,4 @@
-import { ClipboardPaste } from 'lucide-react'
+import { ClipboardPaste, Search as SearchIcon } from 'lucide-react'
 import type React from 'react'
 import { type ChangeEvent, type FormEvent, useId } from 'react'
 import { Button } from '~/components/ui/button'
@@ -61,7 +61,7 @@ export const Search: React.FC<SearchProps> = ({ controller }) => {
 			<label className='sr-only' htmlFor={inputId}>
 				Search audiobooks or paste an authorized magnet link or info hash
 			</label>
-			<div className='flex h-12 w-full items-center gap-2'>
+			<div className='grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2'>
 				<Input
 					aria-describedby={controller.error ? errorId : undefined}
 					className='min-w-0 flex-1'
@@ -83,11 +83,13 @@ export const Search: React.FC<SearchProps> = ({ controller }) => {
 					<ClipboardPaste className='h-4 w-4' />
 				</Button>
 				<Button
+					aria-label={submitLabel}
 					className='h-10 whitespace-nowrap'
 					disabled={isOpening}
 					type='submit'
 				>
-					{submitLabel}
+					<SearchIcon aria-hidden='true' />
+					<span className='hidden sm:inline'>{submitLabel}</span>
 				</Button>
 			</div>
 			{controller.error ? (

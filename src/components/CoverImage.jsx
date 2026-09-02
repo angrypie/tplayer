@@ -1,4 +1,6 @@
+import { BookOpen } from 'lucide-react'
 import React from 'react'
+import { cn } from '~/lib/utils'
 import { getFileUrl } from '~/routes/Playlist/api'
 import { selectCoverCandidates } from '~/utils'
 
@@ -12,7 +14,7 @@ export const CoverImage = ({
 	normalizePathParts = DEFAULT_NORMALIZE_PATH,
 	className = 'w-16 h-16',
 	imgClassName = 'w-full h-full object-cover',
-	placeholderClassName = 'text-xs text-[var(--text-secondary)]',
+	placeholderClassName = 'text-xs text-muted-foreground',
 	loadingLabel = 'Loading cover...',
 }) => {
 	const [coverCandidates, setCoverCandidates] = React.useState([])
@@ -73,43 +75,13 @@ export const CoverImage = ({
 		setCoverIndex((previousIndex) => previousIndex + 1)
 	}, [])
 
-	const containerClassName = [
-		'shrink-0',
-		'rounded-lg',
-		'overflow-hidden',
-		'bg-[var(--bg-elevated)]',
-		'flex',
-		'items-center',
-		'justify-center',
-		className,
-	]
-		.filter(Boolean)
-		.join(' ')
-
-	const placeholderContainerClassName = [
-		'w-full',
-		'h-full',
-		'bg-gradient-to-br',
-		'from-pink-100',
-		'via-pink-50',
-		'to-pink-100',
-		'flex',
-		'items-center',
-		'justify-center',
-	]
-		.filter(Boolean)
-		.join(' ')
-
-	const placeholderLabelClassNames = [
-		'text-center',
-		'px-1',
-		placeholderClassName,
-	]
-		.filter(Boolean)
-		.join(' ')
-
 	return (
-		<div className={containerClassName}>
+		<div
+			className={cn(
+				'flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted',
+				className
+			)}
+		>
 			{coverUrl ? (
 				// biome-ignore lint/a11y/noNoninteractiveElementInteractions: A load error advances to the next cover candidate.
 				<img
@@ -122,10 +94,17 @@ export const CoverImage = ({
 					width={64}
 				/>
 			) : (
-				<div className={placeholderContainerClassName}>
+				<div className='flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 via-muted to-accent'>
 					{isCoverLoading && loadingLabel ? (
-						<span className={placeholderLabelClassNames}>{loadingLabel}</span>
-					) : null}
+						<span className={cn('px-1 text-center', placeholderClassName)}>
+							{loadingLabel}
+						</span>
+					) : (
+						<BookOpen
+							aria-hidden='true'
+							className='size-5 text-muted-foreground'
+						/>
+					)}
 				</div>
 			)}
 		</div>

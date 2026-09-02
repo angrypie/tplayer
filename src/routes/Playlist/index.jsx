@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { PageShell } from '~/components/layout/Page'
 import { File } from './File'
 import { Nav } from './Nav'
 import { useBookStores } from './store'
@@ -28,17 +29,15 @@ function App({ params: { ih } }) {
 	}, [])
 
 	return (
-		<div className='w-full' style={{ height: `${window.innerHeight}px` }}>
-			<div className='h-10'>
-				<Nav onToggleCover={handleToggleCover} showCover={showCover} />
-			</div>
-			<div style={{ height: `calc(${window.innerHeight}px - 10rem - 2.5rem)` }}>
+		<PageShell>
+			<Nav onToggleCover={handleToggleCover} showCover={showCover} />
+			<div className='min-h-0 flex-1'>
 				<TorrentInfo key={ih} showCover={showCover} store={bookStore} />
 			</div>
-			<div className='h-40'>
+			<div className='h-44 shrink-0 border-border/70 border-t bg-card/95'>
 				<File store={bookStore} />
 			</div>
-		</div>
+		</PageShell>
 	)
 }
 

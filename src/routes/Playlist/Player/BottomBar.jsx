@@ -1,6 +1,9 @@
+import { StickyNote, X } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
+import { Card } from '~/components/ui/card'
+import { EmptyState } from '~/components/ui/empty-state'
 import { storage } from '~/storage'
 import { ActionDialog } from '../ActionDialog'
 import { getPreloadStatus, preloadTorrent } from '../api'
@@ -100,7 +103,7 @@ const NoteRow = ({ isSelected, note, onRemove, onSelect }) => {
 	}
 
 	return (
-		<div className='relative flex gap-4 border-border border-b bg-card p-2 pr-10 hover:bg-accent'>
+		<div className='relative flex gap-4 border-border border-b bg-card p-3 pr-11 transition-colors last:border-b-0 hover:bg-accent/60'>
 			<button
 				className='flex min-w-0 grow cursor-pointer gap-4 border-0 bg-transparent p-0 text-left'
 				onClick={handleSelect}
@@ -118,14 +121,16 @@ const NoteRow = ({ isSelected, note, onRemove, onSelect }) => {
 				</span>
 				<span className='grow text-foreground'>{note.note}</span>
 			</button>
-			<button
+			<Button
 				aria-label={`Remove note at ${timeFormat(note.time)}`}
-				className='absolute top-2 right-2 border-none bg-transparent text-muted-foreground hover:text-foreground'
+				className='absolute top-2 right-2 text-muted-foreground hover:text-destructive'
 				onClick={handleRemove}
+				size='icon'
 				type='button'
+				variant='ghost'
 			>
-				×
-			</button>
+				<X aria-hidden='true' />
+			</Button>
 		</div>
 	)
 }
@@ -177,28 +182,30 @@ const NotesModal = ({ notes, onClose, store }) => {
 			<div className='fixed inset-0 z-[1000] flex items-center justify-center'>
 				<button
 					aria-label='Close notes'
-					className='absolute inset-0 border-0 bg-background/70'
+					className='absolute inset-0 border-0 bg-background/80 backdrop-blur-sm'
 					onClick={onClose}
 					type='button'
 				/>
-				<div
+				<Card
 					aria-labelledby='notes-title'
 					aria-modal='true'
-					className='relative flex max-h-[80vh] w-[90%] max-w-[600px] flex-col overflow-hidden rounded-lg bg-card'
+					className='relative flex max-h-[80vh] w-[90%] max-w-[600px] flex-col overflow-hidden shadow-2xl'
 					role='dialog'
 				>
 					<div className='flex items-center justify-between border-border border-b px-4'>
 						<h2 className='text-foreground' id='notes-title'>
 							Notes
 						</h2>
-						<button
+						<Button
 							aria-label='Close notes'
-							className='cursor-pointer border-none bg-transparent text-2xl text-muted-foreground hover:text-foreground'
+							className='text-muted-foreground'
 							onClick={onClose}
+							size='icon'
 							type='button'
+							variant='ghost'
 						>
-							×
-						</button>
+							<X aria-hidden='true' />
+						</Button>
 					</div>
 					<div className='overflow-y-auto p-4'>
 						{localNotes.length ? (
@@ -212,10 +219,10 @@ const NotesModal = ({ notes, onClose, store }) => {
 								/>
 							))
 						) : (
-							<div className='text-center text-muted-foreground'>No notes</div>
+							<EmptyState icon={StickyNote} title='No notes yet' />
 						)}
 					</div>
-				</div>
+				</Card>
 			</div>
 			<ActionDialog
 				description={
@@ -272,7 +279,7 @@ const Actions = ({
 						onClick={closeDropdown}
 						type='button'
 					/>
-					<div className='absolute right-0 bottom-full mb-2 min-w-[200px] overflow-hidden rounded-lg border border-border bg-card shadow-lg'>
+					<Card className='absolute right-0 bottom-full z-10 mb-2 min-w-[220px] overflow-hidden p-1 shadow-xl'>
 						<Button
 							className='w-full justify-start'
 							onClick={selectPreload}
@@ -292,10 +299,11 @@ const Actions = ({
 						<div className='border-border border-t'>
 							<CleanBookDataButtons
 								allFiles={store.torrentInfo?.files ?? []}
+								compact
 								store={store}
 							/>
 						</div>
-					</div>
+					</Card>
 				</>
 			) : null}
 		</div>
@@ -467,34 +475,41 @@ export const BottomBar = observer(({ store }) => {
 
 	return (
 		<>
-			<Button className='w-12' onClick={nextRate} type='button' variant='ghost'>
-				{`x${rate}`}
-			</Button>
-			<Button onClick={addNote} type='button' variant='ghost'>
-				+Note
-			</Button>
-			<Button onClick={showNotes} type='button' variant='ghost'>
-				Notes
-			</Button>
-			<Actions
-				downloadStatus={downloadStatus}
-				handleDownloadAll={handleDownloadAll}
-				handlePreload={handlePreload}
-				preloadStatus={preloadStatus}
-				store={store}
-			/>
-			<Button
-				className='group relative w-8'
-				onClick={copyInfoHash}
-				title='Copy infohash'
-				type='button'
-				variant='ghost'
-			>
-				[ih]
-				<span className='invisible absolute bottom-full left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-popover px-2 py-1 text-popover-foreground text-sm opacity-0 transition-all duration-200 group-[.show-popover]:visible group-[.show-popover]:opacity-100'>
-					Copied infohash
-				</span>
-			</Button>
+			<div className='flex min-w-0 flex-1 items-center justify-between gap-1'>
+				<Button
+					className='w-12'
+					onClick={nextRate}
+					type='button'
+					variant='ghost'
+				>
+					{`x${rate}`}
+				</Button>
+				<Button onClick={addNote} type='button' variant='ghost'>
+					+Note
+				</Button>
+				<Button onClick={showNotes} type='button' variant='ghost'>
+					Notes
+				</Button>
+				<Actions
+					downloadStatus={downloadStatus}
+					handleDownloadAll={handleDownloadAll}
+					handlePreload={handlePreload}
+					preloadStatus={preloadStatus}
+					store={store}
+				/>
+				<Button
+					className='group relative w-10'
+					onClick={copyInfoHash}
+					title='Copy infohash'
+					type='button'
+					variant='ghost'
+				>
+					[ih]
+					<span className='invisible absolute bottom-full left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-popover px-2 py-1 text-popover-foreground text-sm opacity-0 transition-all duration-200 group-[.show-popover]:visible group-[.show-popover]:opacity-100'>
+						Copied infohash
+					</span>
+				</Button>
+			</div>
 			{notes === null ? null : (
 				<NotesModal notes={notes} onClose={closeNotes} store={store} />
 			)}

@@ -7,7 +7,7 @@ export const Player = observer(({ store }) => {
 	const { playerStore } = store
 
 	return (
-		<div className='flex h-full flex-col justify-around'>
+		<div className='flex h-full flex-col justify-around py-2'>
 			<DurationProgressLine store={playerStore} />
 			<PlayButtons store={playerStore} />
 			<div className='mx-4 flex h-8 items-center'>

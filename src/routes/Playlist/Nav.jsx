@@ -1,6 +1,7 @@
 import { ArrowLeft, Image, ImageOff } from 'lucide-react'
 import { Link } from 'wouter'
 import { Nav as BaseNav } from '~/components/layout/Nav'
+import { ThemeToggle } from '~/components/theme-toggle'
 import { Button } from '~/components/ui/button'
 
 export const Nav = ({ showCover, onToggleCover }) => (
@@ -11,7 +12,10 @@ export const Nav = ({ showCover, onToggleCover }) => (
 				<span className='hidden sm:inline'>Back to library</span>
 			</Link>
 		</Button>
-		<div className='flex-1' />
+		<div className='min-w-0 flex-1'>
+			<p className='truncate font-medium text-sm'>Now playing</p>
+			<p className='truncate text-muted-foreground text-xs'>Audiobook player</p>
+		</div>
 		<Button
 			aria-pressed={showCover}
 			onClick={onToggleCover}
@@ -27,5 +31,6 @@ export const Nav = ({ showCover, onToggleCover }) => (
 				{showCover ? 'Hide cover' : 'Show cover'}
 			</span>
 		</Button>
+		<ThemeToggle />
 	</BaseNav>
 )

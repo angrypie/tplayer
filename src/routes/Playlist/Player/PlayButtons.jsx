@@ -1,5 +1,6 @@
 import { Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
+import { Button } from '~/components/ui/button'
 import { playbackJumpSeconds } from './store'
 
 const JumpIcon = ({ direction }) => {
@@ -27,22 +28,23 @@ export const PlayButtons = observer(({ store }) => {
 	const forwardLabel = `Forward ${playbackJumpSeconds} seconds`
 	return (
 		<div className='flex items-center justify-center gap-8'>
-			<button
+			<Button
 				aria-label={backwardLabel}
-				className='grid size-12 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-foreground transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-30'
+				className='size-12 rounded-full'
 				disabled={controlsDisabled}
 				onClick={seekBackward}
-				title={backwardLabel}
+				size='icon'
 				type='button'
+				variant='ghost'
 			>
 				<JumpIcon direction='backward' />
-			</button>
-			<button
+			</Button>
+			<Button
 				aria-label={desiredPlaying ? 'Pause' : 'Play'}
-				className='grid size-14 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-foreground transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:pointer-events-none disabled:opacity-30'
+				className='size-14 rounded-full shadow-md'
 				disabled={controlsDisabled}
 				onClick={togglePlaying}
-				title={desiredPlaying ? 'Pause' : 'Play'}
+				size='icon'
 				type='button'
 			>
 				{desiredPlaying ? (
@@ -54,17 +56,18 @@ export const PlayButtons = observer(({ store }) => {
 						strokeWidth={1.75}
 					/>
 				)}
-			</button>
-			<button
+			</Button>
+			<Button
 				aria-label={forwardLabel}
-				className='grid size-12 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-foreground transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-30'
+				className='size-12 rounded-full'
 				disabled={controlsDisabled}
 				onClick={seekForward}
-				title={forwardLabel}
+				size='icon'
 				type='button'
+				variant='ghost'
 			>
 				<JumpIcon direction='forward' />
-			</button>
+			</Button>
 		</div>
 	)
 })
