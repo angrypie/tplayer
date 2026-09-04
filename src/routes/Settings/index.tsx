@@ -7,6 +7,8 @@ import {
 	useState,
 } from 'react'
 import { Link } from 'wouter'
+import { captionApi, type TranscriptionSettings } from '~/captions/api'
+import { boundedSettingsRequest } from '~/captions/settingsRequests'
 import { ContentUseDialog } from '~/components/ContentUseDialog'
 import { ContentUseNotice } from '~/components/ContentUseNotice'
 import { Nav } from '~/components/layout/Nav'
@@ -43,6 +45,8 @@ interface TrackerProviderRowProps {
 	onChange: (providerId: string, enabled: boolean) => void
 	provider: SearchProviderDescriptor
 }
+
+const TRANSCRIPTION_CLEANUP_POLL_INTERVAL_MS = 1500
 
 const ProviderHomepage = ({ homepage, label }: ProviderHomepageProps) => {
 	const url = safeExternalUrl(homepage)
@@ -130,6 +134,7 @@ const TrackerProviderRow = ({
 }
 
 const Settings = () => {
+	const automaticTranscriptionId = useId()
 	const [error, setError] = useState<string | null>(null)
 	const [isLoading, setIsLoading] = useState(true)
 	const [pendingProviderId, setPendingProviderId] = useState<string | null>(
@@ -140,6 +145,105 @@ const Settings = () => {
 	)
 	const [providers, setProviders] = useState<SearchProviderDescriptor[]>([])
 	const [saveMessage, setSaveMessage] = useState<string | null>(null)
+	const [transcriptionError, setTranscriptionError] = useState<string | null>(
+		null
+	)
+	const [transcriptionSettings, setTranscriptionSettings] =
+		useState<TranscriptionSettings | null>(null)
+	const [transcriptionSettingsLoading, setTranscriptionSettingsLoading] =
+		useState(true)
+	const [transcriptionSettingsSaving, setTranscriptionSettingsSaving] =
+		useState(false)
+
+	useEffect(() => {
+		const controller = new AbortController()
+		let retryTimer: ReturnType<typeof setTimeout> | null = null
+		const loadSettings = async (): Promise<void> => {
+			try {
+				const settings = await boundedSettingsRequest(
+					captionApi,
+					'read',
+					(signal) => captionApi.getSettings(signal),
+					{ signal: controller.signal }
+				)
+				if (!controller.signal.aborted) {
+					setTranscriptionSettings(settings)
+					setTranscriptionError(null)
+				}
+			} catch (value) {
+				if (!controller.signal.aborted) {
+					setTranscriptionError(
+						value instanceof Error
+							? value.message
+							: 'Unable to load transcription settings'
+					)
+					retryTimer = setTimeout(
+						loadSettings,
+						TRANSCRIPTION_CLEANUP_POLL_INTERVAL_MS
+					)
+				}
+			} finally {
+				if (!controller.signal.aborted) {
+					setTranscriptionSettingsLoading(false)
+				}
+			}
+		}
+		loadSettings()
+		return () => {
+			controller.abort()
+			if (retryTimer !== null) {
+				clearTimeout(retryTimer)
+			}
+		}
+	}, [])
+
+	useEffect(() => {
+		if (!transcriptionSettings?.cleanupPending) {
+			return
+		}
+		const controller = new AbortController()
+		let timer: ReturnType<typeof setTimeout> | null = null
+		const pollSettings = async (): Promise<void> => {
+			try {
+				const settings = await boundedSettingsRequest(
+					captionApi,
+					'read',
+					(signal) => captionApi.getSettings(signal),
+					{ signal: controller.signal }
+				)
+				if (controller.signal.aborted) {
+					return
+				}
+				setTranscriptionSettings(settings)
+				setTranscriptionError(null)
+				if (settings.cleanupPending) {
+					timer = setTimeout(
+						pollSettings,
+						TRANSCRIPTION_CLEANUP_POLL_INTERVAL_MS
+					)
+				}
+			} catch (value) {
+				if (!controller.signal.aborted) {
+					setTranscriptionError(
+						value instanceof Error
+							? value.message
+							: 'Unable to confirm transcription cleanup'
+					)
+					timer = setTimeout(
+						pollSettings,
+						TRANSCRIPTION_CLEANUP_POLL_INTERVAL_MS
+					)
+				}
+			}
+		}
+		timer = setTimeout(pollSettings, TRANSCRIPTION_CLEANUP_POLL_INTERVAL_MS)
+		return () => {
+			controller.abort()
+			if (timer !== null) {
+				clearTimeout(timer)
+			}
+		}
+	}, [transcriptionSettings?.cleanupPending])
 
 	useEffect(() => {
 		const controller = new AbortController()
@@ -246,6 +350,48 @@ const Settings = () => {
 		setPendingProviderId(null)
 	}, [])
 
+	const handleAutomaticTranscriptionChange = useCallback(
+		async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+			const enabled = event.currentTarget.checked
+			setTranscriptionSettingsSaving(true)
+			setTranscriptionError(null)
+			try {
+				const settings = await boundedSettingsRequest(
+					captionApi,
+					'write',
+					(signal) => captionApi.updateSettings(enabled, signal)
+				)
+				setTranscriptionSettings(settings)
+			} catch (value) {
+				try {
+					const confirmed = await boundedSettingsRequest(
+						captionApi,
+						'read',
+						(signal) => captionApi.getSettings(signal)
+					)
+					setTranscriptionSettings(confirmed)
+					let message: string | null = null
+					if (confirmed.automaticTranscription !== enabled) {
+						message =
+							value instanceof Error
+								? value.message
+								: 'Unable to save transcription settings'
+					}
+					setTranscriptionError(message)
+				} catch {
+					setTranscriptionError(
+						value instanceof Error
+							? `${value.message} The saved setting could not be confirmed.`
+							: 'Unable to save or confirm transcription settings'
+					)
+				}
+			} finally {
+				setTranscriptionSettingsSaving(false)
+			}
+		},
+		[]
+	)
+
 	const freeProviders = providers.filter((provider) => provider.kind === 'free')
 	const trackerProviders = providers.filter(
 		(provider) => provider.kind === 'tracker'
@@ -277,7 +423,75 @@ const Settings = () => {
 				<ThemeToggle />
 			</Nav>
 
-			<PageContent>
+			<PageContent className='space-y-10'>
+				<section
+					aria-labelledby='transcription-settings-heading'
+					className='space-y-4'
+				>
+					<SectionHeading
+						description='Create reusable captions from audio that is already fully available on this TPlayer server.'
+						title='Transcription and captions'
+						titleAs='h2'
+						titleId='transcription-settings-heading'
+					/>
+					<Card className='p-4'>
+						<div className='flex items-start gap-3'>
+							<Checkbox
+								aria-describedby={`${automaticTranscriptionId}-description`}
+								checked={transcriptionSettings?.automaticTranscription ?? false}
+								className='mt-1'
+								disabled={
+									transcriptionSettingsLoading ||
+									transcriptionSettingsSaving ||
+									transcriptionSettings === null
+								}
+								id={automaticTranscriptionId}
+								onChange={handleAutomaticTranscriptionChange}
+							/>
+							<div className='min-w-0 flex-1'>
+								<label
+									className='cursor-pointer font-medium'
+									htmlFor={automaticTranscriptionId}
+								>
+									Automatically transcribe audiobooks
+								</label>
+								<p
+									className='mt-1 text-muted-foreground text-sm leading-relaxed'
+									id={`${automaticTranscriptionId}-description`}
+								>
+									CouchSpeech runs against audio already stored on this server.
+									Audiobook content is never uploaded to an external service.
+									Turning this off cancels queued or running automatic jobs;
+									completed captions remain available.
+								</p>
+							</div>
+						</div>
+						{transcriptionSettingsLoading ? (
+							<p className='mt-3 text-muted-foreground text-sm' role='status'>
+								Loading transcription settings…
+							</p>
+						) : null}
+						{transcriptionSettingsSaving ? (
+							<p className='sr-only' role='status'>
+								Saving transcription settings
+							</p>
+						) : null}
+						{transcriptionSettings?.cleanupPending ? (
+							<p className='mt-3 text-muted-foreground text-sm' role='status'>
+								{transcriptionSettings.automaticTranscription
+									? 'Automatic transcription is on. TPlayer will resume eligible chapters after the previous attempt releases its local resources.'
+									: 'Automatic transcription is off. TPlayer is finishing cancellation and releasing local resources.'}
+							</p>
+						) : null}
+					</Card>
+					{transcriptionError ? (
+						<Alert role='alert' variant='destructive'>
+							<CircleAlert aria-hidden='true' />
+							<AlertDescription>{transcriptionError}</AlertDescription>
+						</Alert>
+					) : null}
+				</section>
+
 				<section aria-labelledby='search-sources-heading' className='space-y-6'>
 					<SectionHeading
 						description='Public-domain and rights-labelled catalogues are searched first. Unverified tracker sources are optional and stay off until you explicitly acknowledge the content policy.'

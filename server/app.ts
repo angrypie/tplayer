@@ -15,6 +15,8 @@ import {
 } from './search/service'
 import type { TorrentManager } from './torrent/manager'
 import { createTorrentRoutes, fileResponse } from './torrent/routes'
+import type { TranscriptionManager } from './transcription/manager'
+import { createTranscriptionRoutes } from './transcription/routes'
 
 const LEADING_SLASH_PATTERN = /^\/+/
 const FRESH_FRONTEND_CACHE_CONTROL = 'no-cache, no-store, must-revalidate'
@@ -36,6 +38,7 @@ export interface AppDependencies {
 	manager: TorrentManager
 	searchService?: AudiobookSearchService
 	serveFrontend?: boolean
+	transcriptions?: TranscriptionManager
 }
 
 const errorBody = (code: string, message: string): object => ({
@@ -49,6 +52,7 @@ export const createApp = ({
 	manager,
 	searchService = createAudiobookSearchService(),
 	serveFrontend = true,
+	transcriptions,
 }: AppDependencies): Hono => {
 	const app = new Hono()
 	app.use('*', requestId())
@@ -66,25 +70,35 @@ export const createApp = ({
 	})
 	app.use('/api/*', async (context, next) => {
 		await next()
-		context.header('Cache-Control', PRIVATE_API_CACHE_CONTROL)
+		if (!context.res.headers.has('Cache-Control')) {
+			context.header('Cache-Control', PRIVATE_API_CACHE_CONTROL)
+		}
 	})
 
 	app.get('/api/health', (context) => {
 		const databaseHealth = database.healthCheck()
+		const torrentHealth = manager.health()
+		const transcriptionHealth = transcriptions?.health()
 		const healthy =
-			databaseHealth.integrity === 'ok' && !manager.health().destroyed
+			databaseHealth.integrity === 'ok' &&
+			!torrentHealth.destroyed &&
+			(transcriptionHealth?.healthy ?? true)
 		return context.json(
 			{
 				database: databaseHealth,
 				status: healthy ? 'ok' : 'degraded',
-				torrent: manager.health(),
+				torrent: torrentHealth,
+				...(transcriptionHealth ? { transcription: transcriptionHealth } : {}),
 			},
 			healthy ? 200 : 503
 		)
 	})
 
-	app.route('/api', createTorrentRoutes({ manager }))
+	app.route('/api', createTorrentRoutes({ manager, transcriptions }))
 	app.route('/api', createSearchRoutes({ manager, searchService }))
+	if (transcriptions) {
+		app.route('/api', createTranscriptionRoutes({ transcriptions }))
+	}
 
 	// Compatibility with the previous Confluence-backed client. New client code
 	// uses the typed resource routes above, but these keep old saved PWAs usable.

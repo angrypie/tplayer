@@ -2,17 +2,23 @@ import { X } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { Alert, AlertDescription } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
+import { cn } from '~/lib/utils'
 import { Player } from './Player'
 
 export const File = observer(({ store }) => {
-	const { notice, setNotice } = store
+	const { notice, playerStore, setNotice } = store
 
 	const handleDismissNotice = () => {
 		setNotice(null)
 	}
 
 	return (
-		<>
+		<div
+			className={cn(
+				'shrink-0 border-border/70 border-t bg-card/95 transition-[height] duration-200 motion-reduce:transition-none',
+				playerStore.liveCaptionsEnabled ? 'h-96' : 'h-44'
+			)}
+		>
 			<Player store={store} />
 			{notice ? (
 				<Alert
@@ -34,6 +40,6 @@ export const File = observer(({ store }) => {
 					</Button>
 				</Alert>
 			) : null}
-		</>
+		</div>
 	)
 })

@@ -1,4 +1,4 @@
-import { StickyNote, X } from 'lucide-react'
+import { Captions, StickyNote, X } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '~/components/ui/button'
@@ -312,7 +312,8 @@ const Actions = ({
 
 export const BottomBar = observer(({ store }) => {
 	const { currentFile, ih, playerStore, setNotice } = store
-	const { changeRate, rate } = playerStore
+	const { changeRate, liveCaptionsEnabled, rate, setLiveCaptionsEnabled } =
+		playerStore
 	const currentPath = currentFile.path.join('/')
 	const preloadControllerRef = useRef(null)
 	const [notes, setNotes] = useState(null)
@@ -333,6 +334,15 @@ export const BottomBar = observer(({ store }) => {
 	const nextRate = useCallback(() => {
 		changeRate(((value) => (value > 2 ? 0.5 : value))(rate + 0.25))
 	}, [changeRate, rate])
+
+	const toggleLiveCaptions = useCallback(() => {
+		const saved = setLiveCaptionsEnabled(!liveCaptionsEnabled)
+		if (!saved) {
+			setNotice(
+				'Live captions changed for this session but could not be remembered in this browser.'
+			)
+		}
+	}, [liveCaptionsEnabled, setLiveCaptionsEnabled, setNotice])
 
 	const closeDialog = useCallback(() => {
 		setDialog(null)
@@ -483,6 +493,17 @@ export const BottomBar = observer(({ store }) => {
 					variant='ghost'
 				>
 					{`x${rate}`}
+				</Button>
+				<Button
+					aria-label='Live captions'
+					aria-pressed={liveCaptionsEnabled}
+					className='w-10'
+					onClick={toggleLiveCaptions}
+					title='Live captions'
+					type='button'
+					variant={liveCaptionsEnabled ? 'secondary' : 'ghost'}
+				>
+					<Captions aria-hidden='true' />
 				</Button>
 				<Button onClick={addNote} type='button' variant='ghost'>
 					+Note

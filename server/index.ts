@@ -5,6 +5,8 @@ import { AppDatabase } from './database'
 import { asError } from './errors'
 import { logger } from './logger'
 import { TorrentManager } from './torrent/manager'
+import { CouchSpeechProvider } from './transcription/couchSpeechProvider'
+import { TranscriptionManager } from './transcription/manager'
 
 const config = loadConfig()
 if (config.serveFrontend) {
@@ -17,12 +19,21 @@ const manager = new TorrentManager({
 	database,
 	logger,
 })
+const transcriptions = new TranscriptionManager({
+	config: config.transcription,
+	database,
+	logger,
+	provider: new CouchSpeechProvider(),
+	torrentManager: manager,
+})
+await transcriptions.start()
 const app = createApp({
 	config,
 	database,
 	logger,
 	manager,
 	serveFrontend: config.serveFrontend,
+	transcriptions,
 })
 
 const server = serve({
@@ -53,6 +64,7 @@ const shutdown = async (signal: string): Promise<void> => {
 		process.exit(1)
 	}, 10_000)
 	try {
+		await transcriptions.close()
 		await manager.close()
 		database.close()
 		clearTimeout(forceTimer)

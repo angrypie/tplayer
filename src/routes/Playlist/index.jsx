@@ -34,9 +34,7 @@ function App({ params: { ih } }) {
 			<div className='min-h-0 flex-1'>
 				<TorrentInfo key={ih} showCover={showCover} store={bookStore} />
 			</div>
-			<div className='h-44 shrink-0 border-border/70 border-t bg-card/95'>
-				<File store={bookStore} />
-			</div>
+			<File store={bookStore} />
 		</PageShell>
 	)
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'bun'
-import { applicationRoot } from './config'
+import { applicationRoot, loadConfig } from './config'
 
 interface PathProbe {
 	cacheDirectory: string
@@ -64,4 +64,26 @@ test('production state paths remain stable across unrelated working directories'
 			rm(secondDirectory, { force: true, recursive: true }),
 		])
 	}
+})
+
+test('transcription runtime defaults are local and timeout overrides are validated', () => {
+	expect(loadConfig({}).transcription).toEqual({
+		ffmpegPath: 'ffmpeg',
+		requestTimeoutMs: 10 * 60 * 1000,
+	})
+	expect(
+		loadConfig({
+			TPLAYER_FFMPEG_PATH: '/usr/local/bin/custom-ffmpeg',
+			TPLAYER_TRANSCRIPTION_TIMEOUT_MS: '12345',
+		}).transcription
+	).toEqual({
+		ffmpegPath: '/usr/local/bin/custom-ffmpeg',
+		requestTimeoutMs: 12_345,
+	})
+	expect(() => loadConfig({ TPLAYER_TRANSCRIPTION_TIMEOUT_MS: '0' })).toThrow(
+		'TPLAYER_TRANSCRIPTION_TIMEOUT_MS must be a positive integer'
+	)
+	expect(() =>
+		loadConfig({ TPLAYER_TRANSCRIPTION_TIMEOUT_MS: '2147483648' })
+	).toThrow('TPLAYER_TRANSCRIPTION_TIMEOUT_MS must be at most 2147483647')
 })

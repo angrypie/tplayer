@@ -226,6 +226,10 @@ const appConfig = (root: string, torrent: TorrentRuntimeConfig): AppConfig => ({
 	listen: { hostname: '127.0.0.1', port: 0 },
 	serveFrontend: false,
 	torrent,
+	transcription: {
+		ffmpegPath: 'ffmpeg',
+		requestTimeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+	},
 })
 
 export class PrivateSwarmHarness {

@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import {
+	access,
+	copyFile,
+	mkdir,
+	mkdtemp,
+	rm,
+	writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'bun'
@@ -53,6 +60,15 @@ const requireSuccess = (result: CommandResult): string => {
 		throw new Error(result.stderr || result.stdout)
 	}
 	return result.stdout
+}
+
+const pathExists = async (path: string): Promise<boolean> => {
+	try {
+		await access(path)
+		return true
+	} catch {
+		return false
+	}
 }
 
 test('terminal and generated launchd commands resolve one production runtime', async () => {
@@ -112,3 +128,53 @@ test('terminal and generated launchd commands resolve one production runtime', a
 		await rm(temporaryDirectory, { force: true, recursive: true })
 	}
 })
+
+test('production restore installs without the CouchSpeech source checkout', async () => {
+	const temporaryDirectory = await mkdtemp(
+		join(tmpdir(), 'tplayer-production-restore-')
+	)
+	try {
+		await Promise.all([
+			copyFile(
+				join(projectRoot, 'package.json'),
+				join(temporaryDirectory, 'package.json')
+			),
+			copyFile(
+				join(projectRoot, 'bun.lock'),
+				join(temporaryDirectory, 'bun.lock')
+			),
+			copyFile(
+				join(projectRoot, 'bunfig.toml'),
+				join(temporaryDirectory, 'bunfig.toml')
+			),
+		])
+		const packageDirectory = join(temporaryDirectory, 'packages', 'captions')
+		await mkdir(packageDirectory, { recursive: true })
+		await copyFile(
+			join(projectRoot, 'packages/captions/package.json'),
+			join(packageDirectory, 'package.json')
+		)
+
+		requireSuccess(
+			await run(
+				[process.execPath, 'install', '--production', '--frozen-lockfile'],
+				temporaryDirectory,
+				cleanProductionEnvironment()
+			)
+		)
+
+		expect(
+			await pathExists(
+				join(temporaryDirectory, 'node_modules/webtorrent/package.json')
+			)
+		).toBe(true)
+		expect(
+			await pathExists(join(temporaryDirectory, 'node_modules/@couchspeech'))
+		).toBe(false)
+		expect(
+			await pathExists(join(temporaryDirectory, 'node_modules/@tplayer'))
+		).toBe(false)
+	} finally {
+		await rm(temporaryDirectory, { force: true, recursive: true })
+	}
+}, 30_000)

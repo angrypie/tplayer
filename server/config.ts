@@ -5,6 +5,8 @@ const DEFAULT_CACHE_CAPACITY_BYTES = 10 * 1024 * 1024 * 1024
 const DEFAULT_GRACE_MS = 60_000
 const DEFAULT_METADATA_TIMEOUT_MS = 90_000
 const DEFAULT_TORRENT_PORT = 42_069
+const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000
+const MAXIMUM_TIMER_DELAY_MS = 2_147_483_647
 export const applicationRoot = resolve(import.meta.dir, '..')
 
 export interface ListenAddress {
@@ -26,12 +28,18 @@ export interface TorrentRuntimeConfig {
 	utp: boolean
 }
 
+export interface TranscriptionRuntimeConfig {
+	ffmpegPath: string
+	requestTimeoutMs: number
+}
+
 export interface AppConfig {
 	databasePath: string
 	frontendDirectory: string
 	listen: ListenAddress
 	serveFrontend: boolean
 	torrent: TorrentRuntimeConfig
+	transcription: TranscriptionRuntimeConfig
 }
 
 const parseBoolean = (
@@ -145,5 +153,29 @@ export const loadConfig = (
 			// TCP remains enabled and is WebTorrent's stable Bun transport.
 			utp,
 		},
+		transcription: {
+			ffmpegPath: environment.TPLAYER_FFMPEG_PATH?.trim() || 'ffmpeg',
+			requestTimeoutMs: parseTranscriptionTimeout(
+				environment.TPLAYER_TRANSCRIPTION_TIMEOUT_MS,
+				DEFAULT_TRANSCRIPTION_TIMEOUT_MS
+			),
+		},
 	}
+}
+
+const parseTranscriptionTimeout = (
+	value: string | undefined,
+	fallback: number
+): number => {
+	const timeout = parsePositiveInteger(
+		value,
+		fallback,
+		'TPLAYER_TRANSCRIPTION_TIMEOUT_MS'
+	)
+	if (timeout > MAXIMUM_TIMER_DELAY_MS) {
+		throw new Error(
+			`TPLAYER_TRANSCRIPTION_TIMEOUT_MS must be at most ${MAXIMUM_TIMER_DELAY_MS}`
+		)
+	}
+	return timeout
 }

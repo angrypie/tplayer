@@ -81,6 +81,30 @@ const seedVersionThreeDatabase = async (
 	legacy.close()
 }
 
+const seedVersionSixDatabase = async (databaseName: string): Promise<void> => {
+	const legacy = new Dexie(databaseName, { IDBKeyRange, indexedDB })
+	legacy.version(6).stores({
+		fileChunks: '[ih+path+index], [ih+path], ih',
+		fileDownloads: '[ih+path], ih, updatedAt',
+		files: '[ih+path], ih',
+		notes: '++id, ih, [ih+path]',
+		offlineGenerations: 'ih, updatedAt',
+		offlineLeases: 'name, expiresAt',
+		torrents: 'ih, state.updatedAt',
+	})
+	await legacy.open()
+	await legacy.table('torrents').put({
+		ih: INFO_HASH,
+		info: { name: 'Version six book' },
+		state: {
+			path: ['Version six book', '01.mp3'],
+			time: 37,
+			updatedAt: 123,
+		},
+	})
+	legacy.close()
+}
+
 const deterministicBytes = (length: number): Uint8Array<ArrayBuffer> =>
 	Uint8Array.from({ length }, (_, index) => (index * 29 + 17) % 251)
 
@@ -211,6 +235,301 @@ describe('IndexedDB storage integration', () => {
 			expect('length' in (raw ?? {})).toBe(false)
 			expect('mimeType' in (raw ?? {})).toBe(false)
 			expect('storage' in (raw ?? {})).toBe(false)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('adds compact caption storage to a deployed v6 database without changing library state', async () => {
+		const databaseName = uniqueDatabaseName('v6-caption-migration')
+		await seedVersionSixDatabase(databaseName)
+		const repository = createRepository(databaseName)
+		const bytes = Uint8Array.from([0x54, 0x43, 0x41, 0x50, 1, 2, 3, 4])
+		try {
+			expect(await repository.getTorrent(INFO_HASH)).toEqual({
+				ih: INFO_HASH,
+				info: { name: 'Version six book' },
+				state: {
+					path: ['Version six book', '01.mp3'],
+					time: 37,
+					updatedAt: 123,
+				},
+			})
+
+			await repository.putCaptionTrack({
+				bytes: bytes.buffer,
+				cueCount: 2,
+				durationMilliseconds: 4000,
+				etag: '"tcap-test"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH.toUpperCase(),
+				language: 'en',
+				path: 'Version six book/01.mp3',
+				updatedAt: 456,
+			})
+
+			const stored = await repository.getCaptionTrack(
+				INFO_HASH,
+				'Version six book/01.mp3'
+			)
+			expect(stored?.artifactUpdatedAt).toBeUndefined()
+			expect(stored?.ih).toBe(INFO_HASH)
+			expect(stored?.etag).toBe('"tcap-test"')
+			expect(new Uint8Array(stored?.bytes ?? new ArrayBuffer(0))).toEqual(bytes)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('orders caption writes by server artifact revision before local completion time', async () => {
+		const databaseName = uniqueDatabaseName('caption-artifact-order')
+		const repository = createRepository(databaseName)
+		const path = 'Caption artifact race/01.mp3'
+		try {
+			await repository.addTorrent(INFO_HASH, { name: 'Caption artifact race' })
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: '2026-09-04T10:00:02.000Z',
+				bytes: Uint8Array.from([2]).buffer,
+				cueCount: 1,
+				etag: '"tcap-newer"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 100,
+			})
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: '2026-09-04T10:00:01.000Z',
+				bytes: Uint8Array.from([1]).buffer,
+				cueCount: 1,
+				etag: '"tcap-older"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 200,
+			})
+
+			let stored = await repository.getCaptionTrack(INFO_HASH, path)
+			expect(stored?.etag).toBe('"tcap-newer"')
+			expect(stored?.updatedAt).toBe(100)
+
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: '2026-09-04T10:00:03.000Z',
+				bytes: Uint8Array.from([3]).buffer,
+				cueCount: 1,
+				etag: '"tcap-newest"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 50,
+			})
+
+			stored = await repository.getCaptionTrack(INFO_HASH, path)
+			expect(stored?.etag).toBe('"tcap-newest"')
+			expect(stored?.updatedAt).toBe(50)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('fails closed for legacy and conflicting equal-revision caption writes', async () => {
+		const databaseName = uniqueDatabaseName('caption-ambiguous-order')
+		const repository = createRepository(databaseName)
+		const path = 'Caption ambiguous race/01.mp3'
+		const revision = '2026-09-04T10:00:02.000Z'
+		try {
+			await repository.addTorrent(INFO_HASH, { name: 'Caption ambiguous race' })
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: revision,
+				bytes: Uint8Array.from([2]).buffer,
+				cueCount: 1,
+				etag: '"tcap-current"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 100,
+			})
+			await repository.putCaptionTrack({
+				bytes: Uint8Array.from([3]).buffer,
+				cueCount: 1,
+				etag: '"tcap-legacy"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 300,
+			})
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: revision,
+				bytes: Uint8Array.from([4]).buffer,
+				cueCount: 1,
+				etag: '"tcap-conflict"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 400,
+			})
+
+			const stored = await repository.getCaptionTrack(INFO_HASH, path)
+			expect(stored?.etag).toBe('"tcap-current"')
+			expect(stored?.updatedAt).toBe(100)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('upgrades a legacy caption to a server-ordered artifact', async () => {
+		const databaseName = uniqueDatabaseName('caption-legacy-upgrade')
+		const repository = createRepository(databaseName)
+		const path = 'Caption legacy upgrade/01.mp3'
+		try {
+			await repository.addTorrent(INFO_HASH, { name: 'Caption legacy upgrade' })
+			await repository.putCaptionTrack({
+				bytes: Uint8Array.from([1]).buffer,
+				cueCount: 1,
+				etag: '"tcap-legacy"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 200,
+			})
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: '2026-09-04T10:00:01.000Z',
+				bytes: Uint8Array.from([2]).buffer,
+				cueCount: 1,
+				etag: '"tcap-versioned"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 100,
+			})
+
+			const stored = await repository.getCaptionTrack(INFO_HASH, path)
+			expect(stored?.artifactUpdatedAt).toBe('2026-09-04T10:00:01.000Z')
+			expect(stored?.etag).toBe('"tcap-versioned"')
+			expect(stored?.updatedAt).toBe(100)
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('conditionally removes only the exact observed caption record', async () => {
+		const databaseName = uniqueDatabaseName('caption-conditional-delete')
+		const repository = createRepository(databaseName)
+		const path = 'Caption cleanup race/01.mp3'
+		try {
+			await repository.addTorrent(INFO_HASH, { name: 'Caption cleanup race' })
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: '2026-09-04T10:00:01.000Z',
+				bytes: Uint8Array.from([1]).buffer,
+				cueCount: 1,
+				etag: '"tcap-old"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 100,
+			})
+			const observed = await repository.getCaptionTrack(INFO_HASH, path)
+			if (!observed) {
+				throw new Error('Expected the first caption record to be stored')
+			}
+			await repository.putCaptionTrack({
+				artifactUpdatedAt: '2026-09-04T10:00:02.000Z',
+				bytes: Uint8Array.from([2]).buffer,
+				cueCount: 1,
+				etag: '"tcap-replacement"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 200,
+			})
+
+			expect(
+				await repository.removeCaptionTrack(INFO_HASH, path, {
+					artifactUpdatedAt: observed.artifactUpdatedAt,
+					etag: observed.etag,
+					updatedAt: observed.updatedAt,
+				})
+			).toBe(false)
+			const replacement = await repository.getCaptionTrack(INFO_HASH, path)
+			if (!replacement) {
+				throw new Error('Expected the replacement caption record to remain')
+			}
+			expect(
+				await repository.removeCaptionTrack(INFO_HASH, path, {
+					artifactUpdatedAt: replacement.artifactUpdatedAt,
+					etag: '"wrong-etag"',
+					updatedAt: replacement.updatedAt,
+				})
+			).toBe(false)
+			expect(
+				await repository.removeCaptionTrack(INFO_HASH, path, {
+					artifactUpdatedAt: '2026-09-04T10:00:03.000Z',
+					etag: replacement.etag,
+					updatedAt: replacement.updatedAt,
+				})
+			).toBe(false)
+			expect(
+				await repository.removeCaptionTrack(INFO_HASH, path, {
+					artifactUpdatedAt: replacement.artifactUpdatedAt,
+					etag: replacement.etag,
+					updatedAt: replacement.updatedAt + 1,
+				})
+			).toBe(false)
+			expect(
+				await repository.removeCaptionTrack(INFO_HASH, path, {
+					artifactUpdatedAt: replacement.artifactUpdatedAt,
+					etag: replacement.etag,
+					updatedAt: replacement.updatedAt,
+				})
+			).toBe(true)
+			expect(await repository.getCaptionTrack(INFO_HASH, path)).toBeNull()
+		} finally {
+			await repository.deleteDatabase()
+		}
+	})
+
+	test('does not let a delayed older caption write replace a newer track', async () => {
+		const databaseName = uniqueDatabaseName('caption-write-order')
+		const repository = createRepository(databaseName)
+		const path = 'Caption race/01.mp3'
+		try {
+			await repository.addTorrent(INFO_HASH, { name: 'Caption race' })
+			await repository.putCaptionTrack({
+				bytes: Uint8Array.from([2]).buffer,
+				cueCount: 1,
+				etag: '"tcap-newer"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 200,
+			})
+			await repository.putCaptionTrack({
+				bytes: Uint8Array.from([1]).buffer,
+				cueCount: 1,
+				etag: '"tcap-older"',
+				fileLength: 100,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path,
+				updatedAt: 100,
+			})
+
+			const stored = await repository.getCaptionTrack(INFO_HASH, path)
+			expect(stored?.etag).toBe('"tcap-newer"')
+			expect(new Uint8Array(stored?.bytes ?? new ArrayBuffer(0))).toEqual(
+				Uint8Array.from([2])
+			)
 		} finally {
 			await repository.deleteDatabase()
 		}
@@ -531,6 +850,16 @@ describe('IndexedDB storage integration', () => {
 				start: 0,
 				validator: '"cleanup-test-validator"',
 			})
+			await repository.putCaptionTrack({
+				bytes: Uint8Array.from([1, 2, 3]).buffer,
+				cueCount: 1,
+				etag: '"caption-cleanup"',
+				fileLength: 4,
+				formatVersion: 1,
+				ih: INFO_HASH,
+				path: 'Persistent book/01.mp3',
+				updatedAt: 100,
+			})
 
 			expect(await repository.removeFilesByIh(INFO_HASH)).toBe(true)
 			expect(await repository.getAllFilesForTorrent(INFO_HASH)).toEqual([])
@@ -543,6 +872,9 @@ describe('IndexedDB storage integration', () => {
 				updatedAt: 99,
 			})
 			expect((await repository.getNote(noteId))?.note).toBe('Important passage')
+			expect(
+				await repository.getCaptionTrack(INFO_HASH, 'Persistent book/01.mp3')
+			).not.toBeNull()
 
 			await repository.addFile(
 				INFO_HASH,
@@ -553,6 +885,19 @@ describe('IndexedDB storage integration', () => {
 			expect(await repository.getTorrent(INFO_HASH)).toBeNull()
 			expect(await repository.getAllFilesForTorrent(INFO_HASH)).toEqual([])
 			expect(await repository.getNote(noteId)).toBeUndefined()
+			expect(await repository.getCaptionTracksForTorrent(INFO_HASH)).toEqual([])
+			await expect(
+				repository.putCaptionTrack({
+					bytes: Uint8Array.from([9]).buffer,
+					cueCount: 1,
+					etag: '"late-caption"',
+					fileLength: 4,
+					formatVersion: 1,
+					ih: INFO_HASH,
+					path: 'Persistent book/01.mp3',
+					updatedAt: 101,
+				})
+			).rejects.toMatchObject({ name: 'AbortError' })
 		} finally {
 			await repository.deleteDatabase()
 		}

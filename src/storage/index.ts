@@ -2,7 +2,7 @@ import Dexie, { type DexieOptions, type Table, type Transaction } from 'dexie'
 
 const DATABASE_NAME = 'books'
 const CHUNKED_FILE_DATABASE_VERSION = 4
-const CURRENT_DATABASE_VERSION = 6
+const CURRENT_DATABASE_VERSION = 7
 
 export interface PlaybackState {
 	path: string[]
@@ -118,6 +118,20 @@ export interface StoredNote {
 	time: number
 }
 
+export interface StoredCaptionTrack {
+	artifactUpdatedAt?: string
+	bytes: ArrayBuffer
+	cueCount: number
+	durationMilliseconds?: number
+	etag: string
+	fileLength: number
+	formatVersion: number
+	ih: string
+	language?: string
+	path: string
+	updatedAt: number
+}
+
 export interface TorrentUpdate {
 	info?: TorrentMetadata
 	state?: PlaybackState
@@ -162,6 +176,39 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const normalizeInfoHash = (infoHash: string): string =>
 	infoHash.trim().toLowerCase()
+
+const shouldReplaceCaptionTrack = (
+	current: StoredCaptionTrack,
+	candidate: StoredCaptionTrack
+): boolean => {
+	const currentRevision = current.artifactUpdatedAt
+	const candidateRevision = candidate.artifactUpdatedAt
+	if (currentRevision === undefined && candidateRevision === undefined) {
+		return candidate.updatedAt >= current.updatedAt
+	}
+	if (candidateRevision === undefined) {
+		return false
+	}
+	const candidateRevisionTime = Date.parse(candidateRevision)
+	if (!Number.isFinite(candidateRevisionTime)) {
+		return false
+	}
+	if (currentRevision === undefined) {
+		return true
+	}
+
+	const currentRevisionTime = Date.parse(currentRevision)
+	if (!Number.isFinite(currentRevisionTime)) {
+		return false
+	}
+	if (candidateRevisionTime !== currentRevisionTime) {
+		return candidateRevisionTime > currentRevisionTime
+	}
+	if (candidate.etag !== current.etag) {
+		return false
+	}
+	return candidate.updatedAt >= current.updatedAt
+}
 
 const normalizeMetadata = (value: unknown): TorrentMetadata => {
 	let parsed = value
@@ -293,6 +340,7 @@ const toDexieOptions = ({
 })
 
 class BooksDatabase extends Dexie {
+	captions!: Table<StoredCaptionTrack, [string, string]>
 	fileChunks!: Table<StoredFileChunk, [string, string, number]>
 	fileDownloads!: Table<StoredFileDownload, [string, string]>
 	files!: Table<StoredFileRecord, [string, string]>
@@ -323,6 +371,7 @@ class BooksDatabase extends Dexie {
 			torrents: 'ih, state.updatedAt',
 		})
 		this.version(CURRENT_DATABASE_VERSION).stores({
+			captions: '[ih+path], ih, updatedAt',
 			fileChunks: '[ih+path+index], [ih+path], ih',
 			fileDownloads: '[ih+path], ih, updatedAt',
 			files: '[ih+path], ih',
@@ -447,6 +496,90 @@ export class BookStorage {
 
 	async getTorrent(ih: string): Promise<StoredTorrent | null> {
 		return (await this.database.torrents.get(normalizeInfoHash(ih))) ?? null
+	}
+
+	async putCaptionTrack(track: StoredCaptionTrack): Promise<void> {
+		const normalizedHash = normalizeInfoHash(track.ih)
+		await this.database.transaction(
+			'rw',
+			[
+				this.database.captions,
+				this.database.offlineGenerations,
+				this.database.torrents,
+			],
+			async () => {
+				const [current, generation, torrent] = await Promise.all([
+					this.database.captions.get([normalizedHash, track.path]),
+					this.database.offlineGenerations.get(normalizedHash),
+					this.database.torrents.get(normalizedHash),
+				])
+				if (generation?.removed || !torrent) {
+					throw invalidatedDownloadError()
+				}
+				if (current && !shouldReplaceCaptionTrack(current, track)) {
+					return
+				}
+				await this.database.captions.put({
+					...track,
+					bytes: track.bytes.slice(0),
+					ih: normalizedHash,
+				})
+			}
+		)
+	}
+
+	async getCaptionTrack(
+		ih: string,
+		path: string
+	): Promise<StoredCaptionTrack | null> {
+		return (
+			(await this.database.captions.get([normalizeInfoHash(ih), path])) ?? null
+		)
+	}
+
+	async getCaptionTracksForTorrent(ih: string): Promise<StoredCaptionTrack[]> {
+		return await this.database.captions
+			.where('ih')
+			.equals(normalizeInfoHash(ih))
+			.toArray()
+	}
+
+	async removeCaptionTrack(
+		ih: string,
+		path: string,
+		expected?: Pick<
+			StoredCaptionTrack,
+			'artifactUpdatedAt' | 'etag' | 'updatedAt'
+		>
+	): Promise<boolean> {
+		return await this.database.transaction(
+			'rw',
+			this.database.captions,
+			async () => {
+				const key: [string, string] = [normalizeInfoHash(ih), path]
+				const current = await this.database.captions.get(key)
+				if (!current) {
+					return false
+				}
+				if (
+					expected &&
+					(current.artifactUpdatedAt !== expected.artifactUpdatedAt ||
+						current.etag !== expected.etag ||
+						current.updatedAt !== expected.updatedAt)
+				) {
+					return false
+				}
+				await this.database.captions.delete(key)
+				return true
+			}
+		)
+	}
+
+	async removeCaptionTracksByIh(ih: string): Promise<number> {
+		return await this.database.captions
+			.where('ih')
+			.equals(normalizeInfoHash(ih))
+			.delete()
 	}
 
 	async tryAcquireOfflineLease(
@@ -1115,6 +1248,7 @@ export class BookStorage {
 			await this.database.transaction(
 				'rw',
 				[
+					this.database.captions,
 					this.database.fileChunks,
 					this.database.fileDownloads,
 					this.database.files,
@@ -1129,6 +1263,7 @@ export class BookStorage {
 						true
 					)
 					await Promise.all([
+						this.database.captions.where('ih').equals(normalizedHash).delete(),
 						this.database.fileChunks
 							.where('ih')
 							.equals(normalizedHash)

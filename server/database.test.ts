@@ -3,7 +3,11 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AppDatabase } from './database'
+import {
+	AppDatabase,
+	type CaptionArtifactRecord,
+	type TranscriptionJobRecord,
+} from './database'
 import { reportBenchmark } from './test/benchmark'
 
 const DATABASE_TEST_TIMEOUT_MS = 15_000
@@ -75,6 +79,33 @@ describe('AppDatabase integration', () => {
 					`magnet:?xt=urn:btih:${historyHash(1)}`
 				)
 				database.recordCache(historyHash(1), 12 * MIB + 17, true)
+				database.replaceTorrentFiles(historyHash(1), [
+					{
+						fileId: '0',
+						length: 8 * MIB,
+						mimeType: 'audio/mpeg',
+						name: 'chapter-1.mp3',
+						path: ['chapter-1.mp3'],
+						storagePath: ['Older audiobook', 'chapter-1.mp3'],
+					},
+					{
+						fileId: '1',
+						length: 6 * MIB,
+						mimeType: 'audio/mpeg',
+						name: 'chapter-2.mp3',
+						path: ['chapter-2.mp3'],
+						storagePath: ['Older audiobook', 'chapter-2.mp3'],
+					},
+				])
+				expect(
+					database.getTorrentStatusSummary(historyHash(1))?.totalFileBytes
+				).toBe(14 * MIB)
+				expect(
+					database
+						.listTorrentStatusSummaries()
+						.find((torrent) => torrent.infoHash === historyHash(1))
+						?.totalFileBytes
+				).toBe(14 * MIB)
 				const afterUpsert = database
 					.listTorrents()
 					.find((torrent) => torrent.infoHash === historyHash(1))
@@ -194,6 +225,204 @@ describe('AppDatabase integration', () => {
 				])
 				expect(database.deleteTorrent(infoHash)).toBe(true)
 				expect(database.listTorrentRegistrations()).toEqual([])
+			} finally {
+				database?.close()
+				await rm(root, { force: true, recursive: true })
+			}
+		},
+		DATABASE_TEST_TIMEOUT_MS
+	)
+
+	test(
+		'persists transcription settings, jobs, and compact caption blobs atomically and cascades cleanup',
+		async () => {
+			const root = await createTestRoot()
+			const databasePath = join(root, 'history.sqlite')
+			let database: AppDatabase | null = new AppDatabase(databasePath)
+			try {
+				const infoHash = historyHash(991)
+				database.recordTorrentRegistration(
+					infoHash,
+					'Captioned audiobook',
+					`magnet:?xt=urn:btih:${infoHash}`,
+					true
+				)
+				database.replaceTorrentFiles(infoHash, [
+					{
+						fileId: '0',
+						length: 1234,
+						mimeType: 'audio/wav',
+						name: 'chapter.wav',
+						path: ['Book', 'chapter.wav'],
+						storagePath: ['Captioned audiobook', 'Book', 'chapter.wav'],
+					},
+				])
+				expect(database.getAutomaticTranscriptionEnabled()).toBe(false)
+				database.setAutomaticTranscriptionEnabled(true)
+
+				const timestamp = new Date().toISOString()
+				const queuedJob = {
+					attempt: 1,
+					createdAt: timestamp,
+					errorAmbiguous: false,
+					errorCode: null,
+					errorMessage: null,
+					errorRetryable: false,
+					fileId: '0',
+					fileLength: 1234,
+					filePath: 'Book/chapter.wav',
+					finishedAt: null,
+					infoHash,
+					model: 'test-model',
+					processedMilliseconds: 0,
+					provider: 'test-provider',
+					startedAt: null,
+					state: 'queued',
+					totalMilliseconds: null,
+					trigger: 'automatic',
+					updatedAt: timestamp,
+				} satisfies TranscriptionJobRecord
+				database.putTranscriptionJob(queuedJob)
+				const bytes = Uint8Array.from([0x54, 0x43, 0x41, 0x50, 1, 2, 3, 4])
+				const artifact = {
+					bytes,
+					createdAt: timestamp,
+					cueCount: 2,
+					durationMilliseconds: 12_345,
+					fileLength: queuedJob.fileLength,
+					filePath: queuedJob.filePath,
+					formatVersion: 1,
+					infoHash,
+					language: 'en',
+					model: queuedJob.model,
+					provider: queuedJob.provider,
+					sha256: '0123456789abcdef',
+					updatedAt: timestamp,
+				} satisfies CaptionArtifactRecord
+				const completedJob = {
+					...queuedJob,
+					finishedAt: timestamp,
+					processedMilliseconds: artifact.durationMilliseconds,
+					startedAt: timestamp,
+					state: 'completed',
+					totalMilliseconds: artifact.durationMilliseconds,
+				} satisfies TranscriptionJobRecord
+				database.completeTranscription(completedJob, artifact)
+
+				expect(
+					database.getCaptionArtifactMetadata(infoHash, artifact.filePath)
+				).toMatchObject({
+					byteLength: bytes.byteLength,
+					cueCount: 2,
+					language: 'en',
+					sha256: artifact.sha256,
+				})
+				expect(
+					'bytes' in
+						(database.getCaptionArtifactMetadata(infoHash, artifact.filePath) ??
+							{})
+				).toBe(false)
+
+				database.close()
+				database = new AppDatabase(databasePath)
+				expect(database.getAutomaticTranscriptionEnabled()).toBe(true)
+				expect(database.listTorrentFiles(infoHash)).toEqual([
+					{
+						fileId: '0',
+						length: 1234,
+						mimeType: 'audio/wav',
+						name: 'chapter.wav',
+						path: ['Book', 'chapter.wav'],
+						storagePath: ['Captioned audiobook', 'Book', 'chapter.wav'],
+					},
+				])
+				expect(
+					database.getTranscriptionJob(infoHash, artifact.filePath)?.state
+				).toBe('completed')
+				expect(
+					database.getCaptionArtifact(infoHash, artifact.filePath)?.bytes
+				).toEqual(bytes)
+				const firstArtifact = database.getCaptionArtifact(
+					infoHash,
+					artifact.filePath
+				)
+				if (!firstArtifact) {
+					throw new Error('Initial caption artifact was not persisted')
+				}
+				const sameMillisecondBytes = Uint8Array.from([
+					0x54, 0x43, 0x41, 0x50, 5, 6, 7, 8,
+				])
+				database.completeTranscription(completedJob, {
+					...artifact,
+					bytes: sameMillisecondBytes,
+					sha256: 'same-millisecond-replacement',
+					updatedAt: firstArtifact.updatedAt,
+				})
+				const sameMillisecondArtifact = database.getCaptionArtifact(
+					infoHash,
+					artifact.filePath
+				)
+				if (!sameMillisecondArtifact) {
+					throw new Error('Same-millisecond replacement was not persisted')
+				}
+				expect(sameMillisecondArtifact.bytes).toEqual(sameMillisecondBytes)
+				expect(sameMillisecondArtifact.updatedAt).toBe(
+					new Date(Date.parse(firstArtifact.updatedAt) + 1).toISOString()
+				)
+
+				const backwardsClockBytes = Uint8Array.from([
+					0x54, 0x43, 0x41, 0x50, 9, 10, 11, 12,
+				])
+				database.completeTranscription(completedJob, {
+					...artifact,
+					bytes: backwardsClockBytes,
+					sha256: 'backwards-clock-replacement',
+					updatedAt: new Date(
+						Date.parse(firstArtifact.updatedAt) - 60_000
+					).toISOString(),
+				})
+				const backwardsClockArtifact = database.getCaptionArtifact(
+					infoHash,
+					artifact.filePath
+				)
+				if (!backwardsClockArtifact) {
+					throw new Error('Backwards-clock replacement was not persisted')
+				}
+				expect(backwardsClockArtifact.bytes).toEqual(backwardsClockBytes)
+				expect(backwardsClockArtifact.updatedAt).toBe(
+					new Date(
+						Date.parse(sameMillisecondArtifact.updatedAt) + 1
+					).toISOString()
+				)
+
+				const invalidPath = 'Book/invalid.wav'
+				const pendingInvalid = {
+					...queuedJob,
+					fileId: '1',
+					filePath: invalidPath,
+				} satisfies TranscriptionJobRecord
+				database.putTranscriptionJob(pendingInvalid)
+				expect(() =>
+					database?.completeTranscription(
+						{ ...pendingInvalid, state: 'completed' },
+						{
+							...artifact,
+							durationMilliseconds: -1,
+							filePath: invalidPath,
+						}
+					)
+				).toThrow()
+				expect(database.getTranscriptionJob(infoHash, invalidPath)?.state).toBe(
+					'queued'
+				)
+				expect(database.getCaptionArtifact(infoHash, invalidPath)).toBeNull()
+
+				expect(database.deleteTorrent(infoHash)).toBe(true)
+				expect(database.listTorrentFiles(infoHash)).toEqual([])
+				expect(database.listTranscriptionJobs(infoHash)).toEqual([])
+				expect(
+					database.getCaptionArtifact(infoHash, artifact.filePath)
+				).toBeNull()
 			} finally {
 				database?.close()
 				await rm(root, { force: true, recursive: true })

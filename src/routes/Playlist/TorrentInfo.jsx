@@ -118,8 +118,7 @@ const pollTorrentServer = async ({
 	signal,
 	...options
 }) => {
-	await loadCachedMetadata()
-	let metadataAvailable = false
+	let metadataAvailable = await loadCachedMetadata()
 	if (signal.aborted) {
 		return
 	}
@@ -408,8 +407,7 @@ export const TorrentInfo = observer(({ store, showCover }) => {
 
 		pollTorrentServer({
 			infoHash: ih,
-			loadCachedMetadata: () =>
-				setTorrentInfo(ih, { cacheOnly: true, resumePlayback: false }),
+			loadCachedMetadata: () => setTorrentInfo(ih, { cacheOnly: true }),
 			loadMetadata: () => setTorrentInfo(ih),
 			metadataAccessAllowed,
 			onConnectionError: (message) => {

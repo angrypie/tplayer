@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 build
+build.tar.gz
 dist
 dist-ssr
 *.local
@@ -33,6 +34,9 @@ tplayer_history.sqlite
 *.sqlite-wal
 tplayer
 tplayer-cache
+tplayer-captions
+*.tcap
+*.tcap.partial
 coverage
 playwright-report
 test-results

@@ -78,7 +78,7 @@ benchmark:
 
 snapshot: build-backend
 	@echo "Creating production snapshot..."
-	tar -czvf $(TARBALL) $(BUILD_DIR) $(FRONTEND_DIST) scripts package.json bun.lock bunfig.toml
+	tar -czvf $(TARBALL) $(BUILD_DIR) $(FRONTEND_DIST) packages scripts package.json bun.lock bunfig.toml
 
 restore:
 	@echo "Restoring from snapshot..."
@@ -122,7 +122,7 @@ help:
 	@echo "  test             - Run Bun integration tests"
 	@echo "  test-macos       - Verify terminal/LaunchAgent path parity"
 	@echo "  test-ui          - Run Playwright UI tests"
-	@echo "  benchmark        - Run measured torrent benchmarks"
+	@echo "  benchmark        - Run measured performance benchmarks"
 	@echo "  snapshot         - Create production snapshot tarball"
 	@echo "  restore          - Restore a production Bun snapshot"
 	@echo "  install-deps     - Install dependencies on fresh system"

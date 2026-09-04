@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import type { TranscriptionManager } from '../transcription/manager'
 import type { TorrentManager } from './manager'
 
 interface TorrentRoutesDependencies {
 	manager: TorrentManager
+	transcriptions?: TranscriptionManager
 }
 
 interface RegisterTorrentBody {
@@ -64,6 +66,7 @@ const fileResponse = async (
 
 export const createTorrentRoutes = ({
 	manager,
+	transcriptions,
 }: TorrentRoutesDependencies): Hono => {
 	const routes = new Hono()
 	routes.use(
@@ -146,7 +149,10 @@ export const createTorrentRoutes = ({
 	})
 
 	routes.delete('/torrents/:infoHash', async (context) => {
-		const removed = await manager.remove(context.req.param('infoHash'))
+		const infoHash = context.req.param('infoHash')
+		const removed = await manager.remove(infoHash, async () => {
+			await transcriptions?.cancelTorrent(infoHash, false)
+		})
 		if (!removed) {
 			return context.json(
 				{

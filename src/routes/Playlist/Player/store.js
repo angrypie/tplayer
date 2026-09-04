@@ -1,5 +1,9 @@
 import { useLocalObservable } from 'mobx-react-lite'
 import { useState } from 'react'
+import {
+	loadLiveCaptionsPreference,
+	saveLiveCaptionsPreference,
+} from '~/captions/livePreference'
 import { Player } from './player'
 
 export const maxVolume = 1
@@ -130,6 +134,7 @@ export const usePlayerStore = () => {
 		},
 
 		lifecycleHandlers: defaultLifecycleHandlers,
+		liveCaptionsEnabled: loadLiveCaptionsPreference(),
 		loaded: false,
 		loading: false,
 
@@ -191,6 +196,12 @@ export const usePlayerStore = () => {
 				...defaultLifecycleHandlers,
 				...handlers,
 			}
+		},
+
+		setLiveCaptionsEnabled(enabled) {
+			const nextEnabled = Boolean(enabled)
+			store.liveCaptionsEnabled = nextEnabled
+			return saveLiveCaptionsPreference(nextEnabled)
 		},
 
 		setVolume(volume) {

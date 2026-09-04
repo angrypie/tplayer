@@ -14,6 +14,30 @@ import { Progress } from '~/components/ui/progress'
 import type { TorrentServerStatus as TorrentServerStatusDto } from './api'
 import { formatBytes } from './utils'
 
+export const TORRENT_SERVER_STATUS_PANEL_ID = 'torrent-server-status'
+
+export const revealTorrentServerStatus = (): void => {
+	if (typeof document === 'undefined') {
+		return
+	}
+	const panel = document.getElementById(TORRENT_SERVER_STATUS_PANEL_ID)
+	if (!panel) {
+		return
+	}
+	const details = panel.querySelector('details')
+	if (details) {
+		details.open = true
+	}
+	const summary = details?.querySelector('summary')
+	summary?.focus({ preventScroll: true })
+	panel.scrollIntoView({
+		behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+			? 'auto'
+			: 'smooth',
+		block: 'center',
+	})
+}
+
 export type TorrentServerPhase =
 	| 'checking'
 	| 'connection-error'
@@ -48,7 +72,7 @@ const percentage = (status: TorrentServerStatusDto): number => {
 	return Math.min(100, Math.max(0, normalizedProgress))
 }
 
-const statusCopy = (
+export const torrentServerStatusCopy = (
 	phase: TorrentServerPhase,
 	status: TorrentServerStatusDto | null,
 	error?: string | null
@@ -124,6 +148,16 @@ const statusCopy = (
 			description:
 				'The server is finding the book details. Its background job continues if you leave this page.',
 			title: 'Finding book details…',
+		}
+	}
+	if (status.state === 'idle' && status.downloadedBytes > 0) {
+		const downloaded =
+			status.totalBytes > 0
+				? `${Math.floor(percentage(status))}% · ${formatBytes(status.downloadedBytes)} of ${formatBytes(status.totalBytes)}`
+				: formatBytes(status.downloadedBytes)
+		return {
+			description: `The server already has ${downloaded}, but its background download is not running. Start it to fetch the remaining chapters. A chapter can be transcribed once it is fully available on the server.`,
+			title: 'Not downloading on the server',
 		}
 	}
 	return {
@@ -261,7 +295,7 @@ export const TorrentServerStatus = ({
 	serverAccessAllowed,
 	status,
 }: TorrentServerStatusProps) => {
-	const copy = statusCopy(phase, status, error)
+	const copy = torrentServerStatusCopy(phase, status, error)
 	const isBusy = isBusyStatus(phase, status)
 	const canRunAction = canRunServerAction({
 		phase,
@@ -281,6 +315,7 @@ export const TorrentServerStatus = ({
 				aria-busy={isBusy}
 				className='overflow-hidden shadow-none'
 				data-server-state={status?.state ?? phase}
+				id={TORRENT_SERVER_STATUS_PANEL_ID}
 			>
 				<details className='group'>
 					<summary className='cursor-pointer list-none px-3 py-3 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden'>

@@ -1,0 +1,29 @@
+{
+  "name": "@tplayer/captions",
+  "version": "0.1.0",
+  "private": true,
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    "./codec": {
+      "types": "./src/codec.ts",
+      "import": "./src/codec.ts"
+    },
+    "./lookup": {
+      "types": "./src/lookup.ts",
+      "import": "./src/lookup.ts"
+    },
+    "./segmenter": {
+      "types": "./src/segmenter.ts",
+      "import": "./src/segmenter.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "import": "./src/types.ts"
+    }
+  },
+  "scripts": {
+    "benchmark": "bun test benchmark",
+    "test": "bun test test"
+  }
+}

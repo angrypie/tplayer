@@ -1,6 +1,14 @@
 import type { Dirent } from 'node:fs'
-import { readdir, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdir, realpath, rm, stat } from 'node:fs/promises'
+import {
+	isAbsolute,
+	join,
+	relative,
+	resolve as resolvePath,
+	sep,
+} from 'node:path'
+import { file as openBunFile } from 'bun'
+import parseTorrent from 'parse-torrent'
 import WebTorrent, {
 	type Torrent,
 	type TorrentFile,
@@ -10,6 +18,7 @@ import type { TorrentRuntimeConfig } from '../config'
 import type {
 	AppDatabase,
 	CacheEntry,
+	StoredTorrentFile,
 	TorrentStatusSummary,
 	TorrentSummary,
 } from '../database'
@@ -25,6 +34,7 @@ import {
 
 const LEADING_SLASH_PATTERN = /^\/+/
 const MAX_PENDING_NAME_LENGTH = 512
+const POSIX_STAT_BLOCK_BYTES = 512
 
 interface RuntimeTorrent extends Torrent {
 	infoBuffer: Uint8Array
@@ -38,6 +48,19 @@ interface TorrentSession {
 	ready: Promise<RuntimeTorrent>
 	source: string
 	torrent: RuntimeTorrent
+}
+
+interface DeferredSignal {
+	promise: Promise<void>
+	release: () => void
+}
+
+const createDeferredSignal = (): DeferredSignal => {
+	let release = (): void => undefined
+	const promise = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	return { promise, release }
 }
 
 export interface TorrentFileDetails {
@@ -126,7 +149,12 @@ export interface OpenedTorrentFile {
 	contentLength: number
 	file: TorrentFileDetails
 	range: ByteRange | null
+	released?: Promise<void>
 	stream: ReadableStream<Uint8Array> | null
+}
+
+export interface OpenedCachedTorrentFile extends OpenedTorrentFile {
+	localPath: string
 }
 
 export interface TorrentManagerOptions {
@@ -135,6 +163,8 @@ export interface TorrentManagerOptions {
 	database: AppDatabase
 	logger: AppLogger
 }
+
+export type CacheCompletedListener = (infoHash: string) => void
 
 const createEventPromise = (
 	torrent: RuntimeTorrent,
@@ -253,6 +283,9 @@ const waitForSignal = async <Value>(
 const normalizeFilePath = (path: string): string =>
 	path.replaceAll('\\', '/').replace(LEADING_SLASH_PATTERN, '')
 
+const filePathParts = (path: string): string[] =>
+	normalizeFilePath(path).split('/').filter(Boolean)
+
 const pendingTorrentName = (reference: TorrentReference): string => {
 	if (URL.canParse(reference.torrentId)) {
 		const displayName = new URL(reference.torrentId).searchParams
@@ -302,11 +335,44 @@ const torrentProgress = (
 }
 
 const displayPath = (torrent: Torrent, file: TorrentFile): string[] => {
-	const parts = normalizeFilePath(file.path).split('/').filter(Boolean)
+	const parts = filePathParts(file.path)
 	if (parts.length > 1 && parts[0] === torrent.name) {
 		return parts.slice(1)
 	}
 	return parts
+}
+
+const storedTorrentFile = (
+	torrent: Torrent,
+	file: TorrentFile,
+	index: number
+): StoredTorrentFile => ({
+	fileId: String(index),
+	length: file.length,
+	mimeType: torrentFileMediaType(file.name, file.type),
+	name: file.name,
+	path: displayPath(torrent, file),
+	storagePath: filePathParts(file.path),
+})
+
+const cachedFileDetails = (file: StoredTorrentFile): TorrentFileDetails => ({
+	downloaded: file.length,
+	id: file.fileId,
+	length: file.length,
+	mimeType: file.mimeType,
+	name: file.name,
+	path: file.path,
+	progress: 1,
+})
+
+const isContainedPath = (root: string, candidate: string): boolean => {
+	const fromRoot = relative(root, candidate)
+	return (
+		fromRoot.length > 0 &&
+		fromRoot !== '..' &&
+		!fromRoot.startsWith(`..${sep}`) &&
+		!isAbsolute(fromRoot)
+	)
 }
 
 const fileDetails = (
@@ -323,12 +389,25 @@ const fileDetails = (
 	progress: file.progress,
 })
 
+interface BoundedStreamHandle {
+	released: Promise<void>
+	stream: ReadableStream<Uint8Array>
+}
+
+interface ValidatedCachedFile {
+	file: TorrentFileDetails
+	localPath: string
+	stored: StoredTorrentFile
+}
+
 const boundedStream = (
 	source: ReadableStream<Uint8Array>,
 	maximumBytes: number,
-	onFinalize: () => void
-): ReadableStream<Uint8Array> => {
+	onFinalize: () => void,
+	signal?: AbortSignal
+): BoundedStreamHandle => {
 	const reader = source.getReader()
+	const released = createDeferredSignal()
 	let remaining = maximumBytes
 	let finalized = false
 	const finalize = (): void => {
@@ -336,23 +415,40 @@ const boundedStream = (
 			return
 		}
 		finalized = true
-		onFinalize()
+		signal?.removeEventListener('abort', onAbort)
+		try {
+			onFinalize()
+		} finally {
+			released.release()
+		}
 	}
-	return new ReadableStream<Uint8Array>({
+	const cancelSource = async (reason?: unknown): Promise<void> => {
+		try {
+			await reader.cancel(reason)
+		} finally {
+			finalize()
+		}
+	}
+	const onAbort = (): void => {
+		const error = new Error('Stream was cancelled')
+		error.name = 'AbortError'
+		cancelSource(error).catch(() => undefined)
+	}
+	if (signal?.aborted) {
+		onAbort()
+	} else {
+		signal?.addEventListener('abort', onAbort, { once: true })
+	}
+	const stream = new ReadableStream<Uint8Array>({
 		async cancel(reason) {
-			try {
-				await reader.cancel(reason)
-			} finally {
-				finalize()
-			}
+			await cancelSource(reason)
 		},
 		async pull(controller) {
 			try {
 				const { done, value } = await reader.read()
 				if (done || remaining === 0) {
 					controller.close()
-					await reader.cancel()
-					finalize()
+					await cancelSource()
 					return
 				}
 				const chunk =
@@ -361,22 +457,26 @@ const boundedStream = (
 				controller.enqueue(chunk)
 				if (remaining === 0) {
 					controller.close()
-					await reader.cancel()
-					finalize()
+					await cancelSource()
 				}
 			} catch (error) {
 				controller.error(error)
-				finalize()
+				await cancelSource(error).catch(() => undefined)
 			}
 		},
 	})
+	return { released: released.promise, stream }
 }
 
 export class TorrentManager {
+	private readonly cacheCompletedListeners = new Set<CacheCompletedListener>()
+	private readonly cacheEvictionPromises = new Map<string, Promise<void>>()
 	private readonly client: WebTorrent
 	private readonly completedStatePromises = new Map<string, Promise<void>>()
 	private readonly config: TorrentRuntimeConfig
 	private readonly database: AppDatabase
+	private readonly directCacheReaderCounts = new Map<string, number>()
+	private readonly directCacheReaderWaiters = new Map<string, Set<() => void>>()
 	private readonly idleDropPromises = new Map<string, Promise<void>>()
 	private readonly logger: AppLogger
 	private readonly preloadAbortControllers = new Map<string, AbortController>()
@@ -427,6 +527,7 @@ export class TorrentManager {
 		}
 		await Promise.allSettled([...this.removalPromises.values()])
 		await Promise.allSettled([...this.idleDropPromises.values()])
+		await Promise.allSettled([...this.cacheEvictionPromises.values()])
 		const sessions = [...this.sessions.values()]
 		await Promise.all(
 			sessions.map(async (session) => {
@@ -521,6 +622,98 @@ export class TorrentManager {
 		}))
 	}
 
+	onCacheCompleted(listener: CacheCompletedListener): () => void {
+		this.cacheCompletedListeners.add(listener)
+		return () => {
+			this.cacheCompletedListeners.delete(listener)
+		}
+	}
+
+	async cachedFiles(infoHash: string): Promise<TorrentFileDetails[]> {
+		const normalized = normalizeInfoHash(infoHash)
+		const summary = this.database.getTorrentStatusSummary(normalized)
+		if (!(summary?.metadataCompleted && summary.cacheCompleted)) {
+			throw new HttpError(
+				409,
+				'audio_not_local',
+				'The audiobook must finish downloading before transcription'
+			)
+		}
+		return (await this.loadStoredFiles(normalized)).map(cachedFileDetails)
+	}
+
+	async cachedFile(
+		infoHash: string,
+		fileId: string,
+		signal?: AbortSignal
+	): Promise<TorrentFileDetails> {
+		const normalized = normalizeInfoHash(infoHash)
+		this.assertRequestActive(signal)
+		const releaseLease = this.acquireDirectCacheReader(normalized)
+		try {
+			const validated = await this.validateCachedFile(
+				normalized,
+				fileId,
+				signal
+			)
+			this.database.touchTorrent(normalized)
+			return validated.file
+		} catch (error) {
+			return this.throwCachedFileError(error)
+		} finally {
+			releaseLease()
+		}
+	}
+
+	async openCachedFile(
+		infoHash: string,
+		fileId: string,
+		signal?: AbortSignal
+	): Promise<OpenedCachedTorrentFile> {
+		const normalized = normalizeInfoHash(infoHash)
+		this.assertRequestActive(signal)
+		const releaseLease = this.acquireDirectCacheReader(normalized)
+		let streamOwnsLease = false
+		try {
+			const { file, localPath, stored } = await this.validateCachedFile(
+				normalized,
+				fileId,
+				signal
+			)
+			this.database.touchTorrent(normalized)
+			if (stored.length === 0) {
+				return {
+					contentLength: 0,
+					file,
+					localPath,
+					range: null,
+					stream: null,
+				}
+			}
+			const bounded = boundedStream(
+				openBunFile(localPath).stream(),
+				stored.length,
+				releaseLease,
+				signal
+			)
+			streamOwnsLease = true
+			return {
+				contentLength: stored.length,
+				file,
+				localPath,
+				range: null,
+				released: bounded.released,
+				stream: bounded.stream,
+			}
+		} catch (error) {
+			return this.throwCachedFileError(error)
+		} finally {
+			if (!streamOwnsLease) {
+				releaseLease()
+			}
+		}
+	}
+
 	async openFile(
 		infoHash: string,
 		fileId: string,
@@ -561,13 +754,15 @@ export class TorrentManager {
 					})
 				: file.stream()
 			streamOwnsSession = true
+			const bounded = boundedStream(source, contentLength, () =>
+				this.release(session)
+			)
 			return {
 				contentLength,
 				file: fileDetails(torrent, file, index),
 				range,
-				stream: boundedStream(source, contentLength, () =>
-					this.release(session)
-				),
+				released: bounded.released,
+				stream: bounded.stream,
 			}
 		} finally {
 			if (!streamOwnsSession) {
@@ -653,7 +848,10 @@ export class TorrentManager {
 		return this.statusFromSummary(summary)
 	}
 
-	async remove(infoHash: string): Promise<boolean> {
+	async remove(
+		infoHash: string,
+		beforeRemoval?: () => Promise<void>
+	): Promise<boolean> {
 		if (this.closing) {
 			throw new HttpError(503, 'server_stopping', 'Torrent service is stopping')
 		}
@@ -662,13 +860,23 @@ export class TorrentManager {
 		if (existing) {
 			return await existing
 		}
-		const promise = this.performRemoval(normalized).finally(() => {
+		const reservation = createDeferredSignal()
+		const promise = this.performReservedRemoval(
+			normalized,
+			reservation.promise,
+			beforeRemoval
+		).finally(() => {
 			if (this.removalPromises.get(normalized) === promise) {
 				this.removalPromises.delete(normalized)
 			}
 		})
 		this.removalPromises.set(normalized, promise)
+		reservation.release()
 		return await promise
+	}
+
+	isRemoving(infoHash: string): boolean {
+		return this.removalPromises.has(normalizeInfoHash(infoHash))
 	}
 
 	startPreload(infoHash: string): PreloadStatus {
@@ -731,6 +939,78 @@ export class TorrentManager {
 		}
 	}
 
+	private acquireDirectCacheReader(infoHash: string): () => void {
+		if (this.closing) {
+			throw new HttpError(503, 'server_stopping', 'Torrent service is stopping')
+		}
+		this.assertNotRemoving(infoHash)
+		if (this.cacheEvictionPromises.has(infoHash)) {
+			throw new HttpError(
+				409,
+				'audio_not_local',
+				'The audiobook is being removed from the local cache'
+			)
+		}
+		this.directCacheReaderCounts.set(
+			infoHash,
+			(this.directCacheReaderCounts.get(infoHash) ?? 0) + 1
+		)
+		let released = false
+		return () => {
+			if (released) {
+				return
+			}
+			released = true
+			this.releaseDirectCacheReader(infoHash)
+		}
+	}
+
+	private assertRequestActive(signal?: AbortSignal): void {
+		if (signal?.aborted) {
+			throw new HttpError(499, 'request_cancelled', 'Request was cancelled')
+		}
+	}
+
+	private releaseDirectCacheReader(infoHash: string): void {
+		const remaining = Math.max(
+			0,
+			(this.directCacheReaderCounts.get(infoHash) ?? 1) - 1
+		)
+		if (remaining > 0) {
+			this.directCacheReaderCounts.set(infoHash, remaining)
+			return
+		}
+		this.directCacheReaderCounts.delete(infoHash)
+		const waiters = this.directCacheReaderWaiters.get(infoHash)
+		this.directCacheReaderWaiters.delete(infoHash)
+		for (const resolve of waiters ?? []) {
+			resolve()
+		}
+		if (this.closing || this.isRemoving(infoHash)) {
+			return
+		}
+		queueMicrotask(() => {
+			this.pruneCache().catch((error: unknown) => {
+				this.logger.warn('Unable to prune cache after a local reader closed', {
+					error: asError(error).message,
+					infoHash,
+				})
+			})
+		})
+	}
+
+	private async waitForDirectCacheReaders(infoHash: string): Promise<void> {
+		if (!this.directCacheReaderCounts.has(infoHash)) {
+			return
+		}
+		await new Promise<void>((resolve) => {
+			const waiters =
+				this.directCacheReaderWaiters.get(infoHash) ?? new Set<() => void>()
+			waiters.add(resolve)
+			this.directCacheReaderWaiters.set(infoHash, waiters)
+		})
+	}
+
 	private acquireByInfoHash(infoHash: string): TorrentSession {
 		if (this.closing) {
 			throw new HttpError(503, 'server_stopping', 'Torrent service is stopping')
@@ -753,11 +1033,129 @@ export class TorrentManager {
 		return join(this.config.cacheDirectory, normalizeInfoHash(infoHash))
 	}
 
-	private isRemoving(infoHash: string): boolean {
-		return this.removalPromises.has(infoHash)
+	private async loadStoredFiles(
+		infoHash: string
+	): Promise<StoredTorrentFile[]> {
+		const stored = this.database.listTorrentFiles(infoHash)
+		if (stored.length > 0) {
+			return stored
+		}
+		const metadata = this.database.getMetadata(infoHash)
+		if (!metadata) {
+			throw new HttpError(404, 'torrent_not_found', 'Torrent was not found')
+		}
+		try {
+			const parsed = await parseTorrent(metadata.torrentFile)
+			if (normalizeInfoHash(parsed.infoHash) !== infoHash) {
+				throw new Error('Stored torrent metadata hash does not match its row')
+			}
+			const torrentName = parsed.name ?? ''
+			const files = (parsed.files ?? []).map((file, index) => {
+				const storagePath = filePathParts(file.path)
+				const path =
+					storagePath.length > 1 && storagePath[0] === torrentName
+						? storagePath.slice(1)
+						: storagePath
+				return {
+					fileId: String(index),
+					length: file.length,
+					mimeType: torrentFileMediaType(
+						file.name,
+						openBunFile(file.name).type
+					),
+					name: file.name,
+					path,
+					storagePath,
+				} satisfies StoredTorrentFile
+			})
+			if (files.length === 0) {
+				throw new Error('Stored torrent metadata contains no files')
+			}
+			this.database.replaceTorrentFiles(infoHash, files)
+			return files
+		} catch (error) {
+			// biome-ignore lint/style/useErrorCause: HttpError forwards cause through its options argument.
+			throw new HttpError(
+				409,
+				'audio_not_local',
+				'Stored torrent metadata could not resolve local audiobook files',
+				{},
+				{ cause: error }
+			)
+		}
+	}
+
+	private throwCachedFileError(error: unknown): never {
+		if (error instanceof HttpError) {
+			throw error
+		}
+		throw new HttpError(
+			409,
+			'audio_not_local',
+			'The audiobook file is not fully available in the local cache',
+			{},
+			{ cause: error }
+		)
+	}
+
+	private async validateCachedFile(
+		infoHash: string,
+		fileId: string,
+		signal?: AbortSignal
+	): Promise<ValidatedCachedFile> {
+		const summary = this.database.getTorrentStatusSummary(infoHash)
+		if (!summary) {
+			throw new HttpError(404, 'torrent_not_found', 'Torrent was not found')
+		}
+		const files = await this.loadStoredFiles(infoHash)
+		const stored = files.find((candidate) => candidate.fileId === fileId)
+		if (!stored) {
+			throw new HttpError(404, 'file_not_found', 'Torrent file was not found')
+		}
+		const cacheRoot = resolvePath(this.cachePath(infoHash))
+		const candidatePath = resolvePath(cacheRoot, ...stored.storagePath)
+		if (!isContainedPath(cacheRoot, candidatePath)) {
+			throw new Error('Cached torrent path escapes its cache root')
+		}
+		const [resolvedRoot, localPath] = await Promise.all([
+			realpath(cacheRoot),
+			realpath(candidatePath),
+		])
+		if (!isContainedPath(resolvedRoot, localPath)) {
+			throw new Error('Cached torrent path resolves outside its cache root')
+		}
+		const fileStat = await stat(localPath)
+		const allocatedBytes = fileStat.blocks * POSIX_STAT_BLOCK_BYTES
+		if (
+			!fileStat.isFile() ||
+			fileStat.size !== stored.length ||
+			allocatedBytes < stored.length
+		) {
+			throw new Error('Cached torrent file does not match its manifest')
+		}
+		this.assertRequestActive(signal)
+		return {
+			file: cachedFileDetails(stored),
+			localPath,
+			stored,
+		}
+	}
+
+	private async performReservedRemoval(
+		infoHash: string,
+		reservation: Promise<void>,
+		beforeRemoval?: () => Promise<void>
+	): Promise<boolean> {
+		await reservation
+		await beforeRemoval?.()
+		return await this.performRemoval(infoHash)
 	}
 
 	private async performRemoval(infoHash: string): Promise<boolean> {
+		const cacheEvictionPromise = this.cacheEvictionPromises.get(infoHash)
+		if (cacheEvictionPromise) {
+			await cacheEvictionPromise
+		}
 		const idleDropPromise = this.idleDropPromises.get(infoHash)
 		if (idleDropPromise) {
 			await idleDropPromise
@@ -780,6 +1178,7 @@ export class TorrentManager {
 				await this.client.remove(session.torrent, { destroyStore: false })
 				this.sessions.delete(infoHash)
 			}
+			await this.waitForDirectCacheReaders(infoHash)
 			await rm(this.cachePath(infoHash), { force: true, recursive: true })
 			const removed = this.database.deleteTorrent(infoHash)
 			this.logger.info('Torrent removed from server', { infoHash })
@@ -824,7 +1223,7 @@ export class TorrentManager {
 			if (this.closing || this.isRemoving(session.infoHash)) {
 				return
 			}
-			this.saveCompletedState(session).catch((error: unknown) => {
+			this.recordCompletedCache(session).catch((error: unknown) => {
 				this.logger.warn('Unable to save completed torrent state', {
 					error: asError(error).message,
 					infoHash: session.infoHash,
@@ -921,8 +1320,6 @@ export class TorrentManager {
 				await this.consumePreloadFile(file, status, signal)
 			}
 			status.downloadedBytes = torrent.length
-			status.finishedAt = new Date().toISOString()
-			status.state = 'completed'
 			if (this.closing || this.isRemoving(session.infoHash)) {
 				return
 			}
@@ -930,6 +1327,9 @@ export class TorrentManager {
 			const bytes = await this.measureCacheBytes(session.infoHash)
 			this.database.recordCache(session.infoHash, bytes, true)
 			await this.pruneCache()
+			status.finishedAt = new Date().toISOString()
+			status.state = 'completed'
+			this.notifyCacheCompleted(session.infoHash)
 			this.logger.info('Torrent background download completed', {
 				downloadedBytes: status.downloadedBytes,
 				infoHash: session.infoHash,
@@ -938,6 +1338,33 @@ export class TorrentManager {
 		} finally {
 			this.release(session)
 		}
+	}
+
+	private notifyCacheCompleted(infoHash: string): void {
+		for (const listener of this.cacheCompletedListeners) {
+			try {
+				listener(infoHash)
+			} catch (error) {
+				this.logger.warn('Torrent cache completion listener failed', {
+					error: asError(error).message,
+					infoHash,
+				})
+			}
+		}
+	}
+
+	private async recordCompletedCache(session: TorrentSession): Promise<void> {
+		await this.saveCompletedState(session)
+		const bytes = await this.measureCacheBytes(session.infoHash)
+		if (
+			this.closing ||
+			this.isRemoving(session.infoHash) ||
+			!this.database.getTorrentSummary(session.infoHash)
+		) {
+			return
+		}
+		this.database.recordCache(session.infoHash, bytes, true)
+		this.notifyCacheCompleted(session.infoHash)
 	}
 
 	private restoreBackgroundDownloads(): void {
@@ -1024,6 +1451,12 @@ export class TorrentManager {
 			torrent.torrentFile,
 			torrent.magnetURI
 		)
+		this.database.replaceTorrentFiles(
+			session.infoHash,
+			torrent.files.map((file, index) =>
+				storedTorrentFile(torrent, file, index)
+			)
+		)
 		this.logger.info('Torrent metadata ready', {
 			files: torrent.files.length,
 			infoHash: session.infoHash,
@@ -1039,26 +1472,40 @@ export class TorrentManager {
 			if (total <= this.config.cacheCapacityBytes) {
 				break
 			}
-			if (this.sessions.has(entry.infoHash)) {
+			if (
+				this.sessions.has(entry.infoHash) ||
+				this.directCacheReaderCounts.has(entry.infoHash) ||
+				this.cacheEvictionPromises.has(entry.infoHash) ||
+				this.isRemoving(entry.infoHash)
+			) {
 				continue
 			}
 			victims.push(entry)
 			total -= entry.bytes
 		}
-		await Promise.all(
-			victims.map(async (entry) => {
-				await rm(this.cachePath(entry.infoHash), {
-					force: true,
-					recursive: true,
-				})
-				this.database.removeCacheEntry(entry.infoHash)
-				this.preloadJobs.delete(entry.infoHash)
-				this.logger.info('Evicted torrent cache entry', {
-					bytes: entry.bytes,
-					infoHash: entry.infoHash,
-				})
+		const evictions = victims.map((entry) => {
+			const promise = this.evictCacheEntry(entry).finally(() => {
+				if (this.cacheEvictionPromises.get(entry.infoHash) === promise) {
+					this.cacheEvictionPromises.delete(entry.infoHash)
+				}
 			})
-		)
+			this.cacheEvictionPromises.set(entry.infoHash, promise)
+			return promise
+		})
+		await Promise.all(evictions)
+	}
+
+	private async evictCacheEntry(entry: CacheEntry): Promise<void> {
+		await rm(this.cachePath(entry.infoHash), {
+			force: true,
+			recursive: true,
+		})
+		this.database.removeCacheEntry(entry.infoHash)
+		this.preloadJobs.delete(entry.infoHash)
+		this.logger.info('Evicted torrent cache entry', {
+			bytes: entry.bytes,
+			infoHash: entry.infoHash,
+		})
 	}
 
 	private release(session: TorrentSession): void {
@@ -1143,13 +1590,26 @@ export class TorrentManager {
 		const preload = staleCompletedPreload ? undefined : retainedPreload
 		const metadataReady =
 			Boolean(torrent?.files.length) || summary.metadataReady
-		const totalBytes = torrent?.files.length
+		const activeTotalBytes = torrent?.files.length
 			? torrent.length
-			: (preload?.totalBytes ?? 0)
-		const downloadedBytes = Math.max(
+			: preload?.totalBytes
+		const totalBytes =
+			activeTotalBytes && activeTotalBytes > 0
+				? activeTotalBytes
+				: summary.totalFileBytes
+		const retainedBytes =
+			totalBytes > 0
+				? Math.min(summary.cachedBytes, totalBytes)
+				: summary.cachedBytes
+		const observedDownloadedBytes = Math.max(
+			retainedBytes,
 			preload?.downloadedBytes ?? 0,
 			torrent?.downloaded ?? 0
 		)
+		const downloadedBytes =
+			totalBytes > 0
+				? Math.min(observedDownloadedBytes, totalBytes)
+				: observedDownloadedBytes
 		const state = torrentActivityState({
 			completedCache,
 			metadataReady,

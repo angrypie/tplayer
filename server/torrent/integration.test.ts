@@ -1,4 +1,12 @@
 import { describe, expect, spyOn, test } from 'bun:test'
+import {
+	mkdir,
+	open as openFileHandle,
+	realpath,
+	stat,
+	truncate,
+} from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { reportBenchmark } from '../test/benchmark'
 import {
 	delay,
@@ -332,11 +340,137 @@ describe('Hono and WebTorrent private swarm integration', () => {
 	)
 
 	test(
+		'opens one fully cached chapter from an incomplete idle torrent and reports retained progress',
+		async () => {
+			const harness = await PrivateSwarmHarness.start(75)
+			try {
+				await harness.register()
+				const [primaryFixture, secondaryFixture] = harness.fixture.files
+				if (!(primaryFixture && secondaryFixture)) {
+					throw new Error('Private swarm fixture has too few audio files')
+				}
+				const primaryFileId = requiredFileId(
+					primaryFixture.id,
+					primaryFixture.path
+				)
+				const secondaryFileId = requiredFileId(
+					secondaryFixture.id,
+					secondaryFixture.path
+				)
+
+				const response = await harness.app.request(
+					fileUrl(harness, primaryFileId)
+				)
+				const { body } = await readResponse(response)
+				expect(response.status).toBe(200)
+				expect(sha256(body)).toBe(primaryFixture.sha256)
+				await harness.waitForIdleDrop()
+
+				const cache = harness.database.getCacheEntry(harness.infoHash)
+				if (!cache) {
+					throw new Error('Partial torrent cache was not retained')
+				}
+				expect(cache.completed).toBe(false)
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const statusResponse = await harness.app.request(statusUrl)
+				const status = (await statusResponse.json()) as TorrentStatus
+				expect(status.state).toBe('idle')
+				expect(status.totalBytes).toBe(harness.fixture.totalBytes)
+				expect(status.downloadedBytes).toBe(
+					Math.min(cache.bytes, harness.fixture.totalBytes)
+				)
+				expect(status.progress).toBeGreaterThan(0)
+				expect(status.progress).toBeLessThan(1)
+				const listed = (await (
+					await harness.app.request('/api/torrents')
+				).json()) as TorrentStatus[]
+				expect(
+					listed.find((torrent) => torrent.infoHash === harness.infoHash)
+				).toMatchObject({
+					downloadedBytes: status.downloadedBytes,
+					totalBytes: harness.fixture.totalBytes,
+				})
+
+				expect(
+					await harness.manager.cachedFile(harness.infoHash, primaryFileId)
+				).toMatchObject({ id: primaryFileId, progress: 1 })
+				await expect(
+					harness.manager.cachedFiles(harness.infoHash)
+				).rejects.toMatchObject({ code: 'audio_not_local', status: 409 })
+
+				const storedFiles = harness.database.listTorrentFiles(harness.infoHash)
+				const primaryStored = storedFiles.find(
+					(file) => file.fileId === primaryFileId
+				)
+				const secondaryStored = storedFiles.find(
+					(file) => file.fileId === secondaryFileId
+				)
+				if (!(primaryStored && secondaryStored)) {
+					throw new Error('Stored torrent manifest omitted an audio file')
+				}
+				const opened = await harness.manager.openCachedFile(
+					harness.infoHash,
+					primaryFileId
+				)
+				const expectedLocalPath = await realpath(
+					join(
+						harness.config.torrent.cacheDirectory,
+						harness.infoHash,
+						...primaryStored.storagePath
+					)
+				)
+				expect(opened.localPath).toBe(expectedLocalPath)
+				if (!opened.stream) {
+					throw new Error('Fully cached chapter had no stream')
+				}
+				const openedBody = new Uint8Array(
+					await new Response(opened.stream).arrayBuffer()
+				)
+				await opened.released
+				expect(sha256(openedBody)).toBe(primaryFixture.sha256)
+
+				const sparsePath = join(
+					harness.config.torrent.cacheDirectory,
+					harness.infoHash,
+					...secondaryStored.storagePath
+				)
+				await mkdir(dirname(sparsePath), { recursive: true })
+				await (await openFileHandle(sparsePath, 'w')).close()
+				await truncate(sparsePath, secondaryStored.length)
+				const sparseStat = await stat(sparsePath)
+				expect(sparseStat.size).toBe(secondaryStored.length)
+				expect(sparseStat.blocks * 512).toBeLessThan(secondaryStored.length)
+				await expect(
+					harness.manager.cachedFile(harness.infoHash, secondaryFileId)
+				).rejects.toMatchObject({ code: 'audio_not_local', status: 409 })
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
 		'preloads once, reports real progress, survives idle eviction, and serves the complete cache after restart without a seed',
 		async () => {
 			const harness = await PrivateSwarmHarness.start(75)
 			try {
 				await harness.register()
+				const [primaryFixture] = harness.fixture.files
+				if (!primaryFixture) {
+					throw new Error('Private swarm fixture has no primary audio file')
+				}
+				const primaryFileId = requiredFileId(
+					primaryFixture.id,
+					primaryFixture.path
+				)
+				await expect(
+					harness.manager.openCachedFile(harness.infoHash, primaryFileId)
+				).rejects.toMatchObject({ code: 'audio_not_local' })
+				const completedHashes: string[] = []
+				const stopObserving = harness.manager.onCacheCompleted((infoHash) => {
+					completedHashes.push(infoHash)
+				})
 				const preloadUrl = `/api/torrents/${harness.infoHash}/preload`
 				const [firstResponse, secondResponse] = await Promise.all([
 					harness.app.request(preloadUrl, { method: 'POST' }),
@@ -362,11 +496,28 @@ describe('Hono and WebTorrent private swarm integration', () => {
 					)
 				).toBe(true)
 				expect((await harness.torrent()).done).toBe(true)
+				expect(completedHashes).toContain(harness.infoHash)
+				stopObserving()
 
 				await harness.stopSeeder()
 				await harness.waitForIdleDrop()
 				expect(harness.manager.health().activeSessions).toBe(0)
+				harness.database.connection
+					.query('DELETE FROM torrent_files WHERE info_hash = ?')
+					.run(harness.infoHash)
 				await harness.restartWithoutSeeder()
+				const opened = await harness.manager.openCachedFile(
+					harness.infoHash,
+					primaryFileId
+				)
+				const locallyOpened = new Uint8Array(
+					await new Response(opened.stream).arrayBuffer()
+				)
+				expect(sha256(locallyOpened)).toBe(primaryFixture.sha256)
+				expect(
+					harness.database.listTorrentFiles(harness.infoHash)
+				).toHaveLength(harness.fixture.files.length)
+				expect(harness.manager.health().activeSessions).toBe(0)
 
 				const cachedFiles = await Promise.all(
 					harness.fixture.files.map(async (fixtureFile) => {
@@ -382,6 +533,118 @@ describe('Hono and WebTorrent private swarm integration', () => {
 					expect(sha256(body)).toBe(fixtureFile.sha256)
 				}
 				expect((await harness.torrent()).received).toBe(0)
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'keeps a direct-cache transcription reader leased across capacity pruning',
+		async () => {
+			const harness = await PrivateSwarmHarness.start(250)
+			try {
+				harness.config.torrent.cacheCapacityBytes = 1
+				await harness.register(true)
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const initialResponse = await harness.app.request(statusUrl)
+				const initial = (await initialResponse.json()) as TorrentStatus
+				const completed =
+					initial.state === 'completed'
+						? initial
+						: await waitForTorrentStatus(
+								harness,
+								statusUrl,
+								[],
+								initial.progress
+							)
+				expect(completed.state).toBe('completed')
+				const [fixtureFile] = harness.fixture.files
+				if (!fixtureFile) {
+					throw new Error('Private swarm fixture has no transcription file')
+				}
+				const fileId = requiredFileId(fixtureFile.id, fixtureFile.path)
+				const opened = await harness.manager.openCachedFile(
+					harness.infoHash,
+					fileId
+				)
+				if (!opened.stream) {
+					throw new Error('Cached transcription file had no stream')
+				}
+				const reader = opened.stream.getReader()
+				try {
+					await harness.waitForIdleDrop()
+					await delay(50)
+					expect(
+						harness.database.getCacheEntry(harness.infoHash)
+					).not.toBeNull()
+					const first = await reader.read()
+					expect(first.done).toBe(false)
+					expect(first.value?.byteLength).toBeGreaterThan(0)
+				} finally {
+					await reader.cancel()
+				}
+				await waitForCacheEviction(harness, harness.infoHash)
+				expect(harness.database.getCacheEntry(harness.infoHash)).toBeNull()
+			} finally {
+				await harness.close()
+			}
+		},
+		INTEGRATION_TIMEOUT_MS
+	)
+
+	test(
+		'waits for a direct-cache reader to close before removing its torrent',
+		async () => {
+			const harness = await PrivateSwarmHarness.start(75)
+			try {
+				await harness.register(true)
+				const statusUrl = `/api/torrents/${harness.infoHash}/status`
+				const initialResponse = await harness.app.request(statusUrl)
+				const initial = (await initialResponse.json()) as TorrentStatus
+				if (initial.state !== 'completed') {
+					await waitForTorrentStatus(harness, statusUrl, [], initial.progress)
+				}
+				await harness.waitForIdleDrop()
+				const [fixtureFile] = harness.fixture.files
+				if (!fixtureFile) {
+					throw new Error('Private swarm fixture has no transcription file')
+				}
+				const fileId = requiredFileId(fixtureFile.id, fixtureFile.path)
+				const opened = await harness.manager.openCachedFile(
+					harness.infoHash,
+					fileId
+				)
+				if (!opened.stream) {
+					throw new Error('Cached transcription file had no stream')
+				}
+				const reader = opened.stream.getReader()
+				let removalSettled = false
+				let reservedBeforeCallback = false
+				const removal = harness.manager
+					.remove(harness.infoHash, () => {
+						reservedBeforeCallback = harness.manager.isRemoving(
+							harness.infoHash
+						)
+						return Promise.resolve()
+					})
+					.finally(() => {
+						removalSettled = true
+					})
+				try {
+					await delay(50)
+					expect(reservedBeforeCallback).toBe(true)
+					expect(removalSettled).toBe(false)
+					expect(harness.database.getMetadata(harness.infoHash)).not.toBeNull()
+					await expect(
+						harness.manager.openCachedFile(harness.infoHash, fileId)
+					).rejects.toMatchObject({ code: 'torrent_removing', status: 409 })
+				} finally {
+					await reader.cancel()
+				}
+				expect(await removal).toBe(true)
+				expect(harness.database.getMetadata(harness.infoHash)).toBeNull()
 			} finally {
 				await harness.close()
 			}
@@ -504,6 +767,7 @@ describe('Hono and WebTorrent private swarm integration', () => {
 					)
 					expect(failedDelete.status).toBe(500)
 					expect(removeSpy).toHaveBeenCalledTimes(1)
+					expect(harness.manager.isRemoving(harness.infoHash)).toBe(false)
 
 					const retainedStatusResponse = await harness.app.request(statusUrl)
 					expect(retainedStatusResponse.status).toBe(200)
@@ -572,7 +836,7 @@ describe('Hono and WebTorrent private swarm integration', () => {
 				expect(evicted.state).toBe('idle')
 				expect(evicted.metadataReady).toBe(true)
 				expect(evicted.downloadedBytes).toBe(0)
-				expect(evicted.totalBytes).toBe(0)
+				expect(evicted.totalBytes).toBe(harness.fixture.totalBytes)
 				expect(evicted.progress).toBe(0)
 				expect(harness.manager.preloadStatus(harness.infoHash)).toBeNull()
 				expect(harness.database.getCacheEntry(harness.infoHash)).toBeNull()
